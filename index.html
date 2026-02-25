@@ -3,45 +3,41 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>eth_sign 安全水位与 UI 截断测试 PoC</title>
+    <title>eth_sign 自动验证与安全水位测试 PoC</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.11.1/ethers.umd.min.js"></script>
     <style>
-        body { font-family: monospace; max-width: 800px; margin: 20px auto; padding: 20px; background-color: #f4f4f9; color: #333; }
+        body { font-family: monospace; max-width: 900px; margin: 20px auto; padding: 20px; background-color: #f4f4f9; color: #333; }
         h2 { color: #2c3e50; }
         button { padding: 12px 20px; margin: 10px 10px 10px 0; cursor: pointer; background-color: #007bff; color: white; border: none; border-radius: 6px; font-weight: bold; font-size: 14px;}
         button.danger { background-color: #dc3545; }
         button:hover { opacity: 0.9; }
         button:disabled { background-color: #cccccc; cursor: not-allowed; color: #666;}
-        #console { background: #1e1e1e; color: #00ff00; padding: 15px; border-radius: 8px; height: 350px; overflow-y: auto; white-space: pre-wrap; font-size: 13px; border: 2px solid #333; }
+        #console { background: #1e1e1e; color: #00ff00; padding: 15px; border-radius: 8px; height: 450px; overflow-y: auto; white-space: pre-wrap; font-size: 13px; border: 2px solid #333; line-height: 1.4; }
         .info-box { margin-bottom: 20px; padding: 15px; background: #e9ecef; border-left: 5px solid #007bff; border-radius: 4px; line-height: 1.5; }
-        .highlight { font-weight: bold; color: #dc3545; }
     </style>
 </head>
 <body>
-    <h2>Wallet eth_sign Security Tester</h2>
+    <h2>Wallet eth_sign 底层逻辑自动化鉴定器</h2>
     <div class="info-box">
-        此 PoC 脚本通过调用 <code>window.ethereum</code> 接口，直接向当前浏览器注入的 Web3 钱包发送 <code>eth_sign</code> RPC 请求。<br><br>
-        <strong>测试目标：</strong><br>
-        1. 探针 A：测试钱包是否从底层或 UI 层面拦截了高危的裸哈希盲签。<br>
-        2. 探针 B：测试钱包的 UI 渲染引擎是否存在 <code>\x00</code> (Null Byte) 截断视觉欺骗漏洞。
+        这个 PoC 会对钱包返回的签名数据立即执行密码学验证 (ecrecover)。<br>
+        即使前端看起来成功调用了 <code>eth_sign</code>，它也会帮你扒开底层，看看钱包是否偷偷将其转换为了安全的 <code>personal_sign</code> (EIP-191) 来进行防御。
     </div>
 
     <div>
-        <button id="btnConnect">1. 连接钱包 (获取授权)</button>
-        当前测试地址: <span id="walletAddress" style="font-weight: bold; color: #007bff;">未连接</span>
+        <button id="btnConnect">1. 连接测试钱包</button>
+        当前地址: <span id="walletAddress" style="font-weight: bold; color: #007bff;">未连接</span>
     </div>
 
     <div style="margin-top: 15px; border-top: 1px dashed #ccc; padding-top: 15px;">
-        <button id="btnStandardSign" class="danger" disabled>2. 探针 A: 发送标准 eth_sign 请求</button>
-        <button id="btnNullByteSign" class="danger" disabled>3. 探针 B: 发送 0x00 截断 Payload</button>
+        <button id="btnStandardSign" class="danger" disabled>2. 发送 eth_sign 并自动鉴定</button>
     </div>
 
-    <h3 style="margin-top: 30px;">测试输出日志 (Console):</h3>
-    <div id="console">等待操作初始化...</div>
+    <h3 style="margin-top: 30px;">解析控制台:</h3>
+    <div id="console">等待操作...</div>
 
     <script>
         const btnConnect = document.getElementById('btnConnect');
         const btnStandardSign = document.getElementById('btnStandardSign');
-        const btnNullByteSign = document.getElementById('btnNullByteSign');
         const elAddress = document.getElementById('walletAddress');
         const elConsole = document.getElementById('console');
 
@@ -53,68 +49,92 @@
             elConsole.scrollTop = elConsole.scrollHeight;
         }
 
-        // 1. 连接钱包获取地址
+        // 1. 连接钱包
         btnConnect.addEventListener('click', async () => {
             if (typeof window.ethereum !== 'undefined') {
                 try {
-                    log("正在向 provider 发送 eth_requestAccounts 请求...");
                     const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-                    currentAccount = accounts[0];
+                    currentAccount = accounts[0].toLowerCase();
                     elAddress.innerText = currentAccount;
-                    log(`✅ 钱包连接成功。当前地址: ${currentAccount}`);
+                    log(`✅ 钱包连接成功。测试地址: ${currentAccount}`);
                     btnStandardSign.disabled = false;
-                    btnNullByteSign.disabled = false;
                 } catch (error) {
-                    log(`❌ 连接被拒绝或出错: ${error.message} (Code: ${error.code})`);
+                    log(`❌ 连接错误: ${error.message}`);
                 }
             } else {
-                log("⚠️ 未检测到 window.ethereum 提供者！请确保你已在浏览器中安装并启用了钱包插件。");
+                log("⚠️ 未检测到 window.ethereum，请确保钱包插件已启用。");
             }
         });
 
-        // 2. 标准 eth_sign 测试
+        // 2. 发送请求并自动验证
         btnStandardSign.addEventListener('click', async () => {
             if (!currentAccount) return;
-            // 构造一个模拟的 32-byte 交易哈希的十六进制字符串
+            
+            // 构造一个 32-byte 的测试哈希
             const payload = "0x89c9e5fa472f883b6f007bc9543e2621c1f55b9e0f34033dfd720c24298150a0";
-            log(`\n--- 🚀 执行探针 A: 标准 eth_sign ---`);
-            log(`发送的 Payload (模拟恶意交易哈希): ${payload}`);
+            log(`\n--- 🚀 发送 eth_sign 请求 ---`);
+            log(`Payload (Hex): ${payload}`);
             
             try {
+                // 等待用户在钱包中点击签名确认
                 const signature = await window.ethereum.request({
                     method: 'eth_sign',
                     params: [currentAccount, payload]
                 });
-                log(`🚨 [高危] 钱包未实施拦截！成功拿到签名:\n${signature}`);
+                
+                log(`✅ 成功拿到签名数据:\n${signature}\n`);
+                log(`🔍 正在调用 ethers.js 进行密码学反推验证...`);
+
+                // 拿到签名后，瞬间在本地执行验证逻辑
+                verifySignature(payload, signature, currentAccount);
+
             } catch (error) {
-                log(`🛡️ [安全] 钱包成功拦截或你拒绝了请求。\n返回信息: ${error.message} (Code: ${error.code})`);
+                log(`🛡️ 请求被拦截或用户取消: ${error.message}`);
             }
         });
 
-        // 3. 0x00 截断 (Null Byte Truncation) 测试
-        btnNullByteSign.addEventListener('click', async () => {
-            if (!currentAccount) return;
-            // 构造 Payload: "SafeMessage\x00EvilData" 的 Hex 编码
-            // "SafeMessage" -> 536166654d657373616765
-            // "\x00"        -> 00
-            // "EvilData"    -> 4576696c44617461
-            const payload = "0x536166654d657373616765004576696c44617461";
-            
-            log(`\n--- 🚀 执行探针 B: 0x00 UI 截断测试 ---`);
-            log(`发送的 Payload (Hex): ${payload}`);
-            log(`🔍 观察点：请仔细查看钱包弹出的签名确认界面。`);
-            log(`如果界面上只能看到 "SafeMessage" (或对应的 ASCII 解析)，而 "EvilData" 凭空消失了，说明该钱包存在视觉截断漏洞！`);
-            
-            try {
-                const signature = await window.ethereum.request({
-                    method: 'eth_sign',
-                    params: [currentAccount, payload]
-                });
-                log(`🚨 [高危] 获取到签名！UI 可能被成功欺骗:\n${signature}`);
-            } catch (error) {
-                 log(`🛡️ [安全或取消] 请求未完成。\n返回信息: ${error.message} (Code: ${error.code})`);
+        // 3. 核心密码学验证逻辑
+        function verifySignature(payload, signature, address) {
+            if (typeof ethers === 'undefined') {
+                log("❌ ethers.js 加载失败，请检查网络连接或 CDN。");
+                return;
             }
-        });
+
+            let isEthSign = false;
+            let isPersonalSign = false;
+
+            // 测试 A: 验证是否为纯正的、无前缀的 eth_sign 盲签
+            try {
+                const recoveredEth = ethers.recoverAddress(payload, signature).toLowerCase();
+                if (recoveredEth === address) {
+                    isEthSign = true;
+                }
+            } catch (e) {
+                console.error("eth_sign 恢复错误:", e);
+            }
+
+            // 测试 B: 验证是否被偷偷加上了 EIP-191 前缀 (变成了 personal_sign)
+            try {
+                const payloadBytes = ethers.getBytes(payload);
+                const recoveredPersonal = ethers.verifyMessage(payloadBytes, signature).toLowerCase();
+                if (recoveredPersonal === address) {
+                    isPersonalSign = true;
+                }
+            } catch (e) {
+                console.error("personal_sign 恢复错误:", e);
+            }
+
+            // 打印最终鉴定结论
+            if (isEthSign) {
+                log(`🚨 [极度危险] 鉴定结果：这是真实的 eth_sign 盲签！`);
+                log(`👉 钱包没有进行任何前缀保护，直接对裸哈希进行了签名。攻击者可轻易利用此漏洞盗取资产。`);
+            } else if (isPersonalSign) {
+                log(`🛡️ [安全伪装] 鉴定结果：已被安全转换为 personal_sign！`);
+                log(`👉 钱包 UI 上虽然看起来像是处理了 eth_sign，但底层强制加上了 EIP-191 前缀。这笔签名无法作为恶意交易被广播，资产是安全的。`);
+            } else {
+                log(`❓ [未知标准] 鉴定结果：无法匹配主流标准，钱包可能使用了自定义的签名加密算法。`);
+            }
+        }
     </script>
 </body>
 </html>
