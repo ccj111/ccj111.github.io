@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Web3 签名底层靶机 v4.0 (Skypack 终极版)</title>
+    <title>Web3 签名底层靶机 v4.1 (语法修复版)</title>
     <style>
         body { background: #121212; color: #00ff00; font-family: 'Courier New', Courier, monospace; padding: 20px; }
         .box { border: 1px solid #333; padding: 25px; border-radius: 8px; background: #1e1e1e; max-width: 600px; margin: 0 auto; box-shadow: 0 0 15px rgba(0, 255, 0, 0.1); }
@@ -19,7 +19,7 @@
 </head>
 <body>
     <div class="box">
-        <h2>🎯 Web3 靶机控制台 (终极版)</h2>
+        <h2>🎯 Web3 靶机控制台</h2>
         <p>状态: <strong id="status" style="color: yellow;">正在从云端拉取核心引擎...</strong></p>
         <p>目标地址: <strong id="address" style="color: #00ff00;">未连接</strong></p>
 
@@ -63,7 +63,7 @@
             if (PROJECT_ID.includes("填这里") || PROJECT_ID.length < 5) {
                 statusEl.innerText = "错误：Project ID 未填写";
                 statusEl.style.color = "red";
-                log("🚨 <span style="color:red">致命错误：请在代码中填写有效的 Project ID！</span>");
+                log(`🚨 <span style='color:red'>致命错误：请在代码中填写有效的 Project ID！</span>`);
                 return;
             }
 
@@ -74,127 +74,4 @@
                     projectId: PROJECT_ID,
                     metadata: {
                         name: "安全靶机",
-                        description: "Web3 底层通信与安全验证测试平台",
-                        url: window.location.origin,
-                        icons: ["https://avatars.githubusercontent.com/u/37784886"]
-                    },
-                    showQrModal: true,
-                    optionalChains: [1, 56, 137]
-                });
-
-                window.pocProvider = provider;
-                
-                statusEl.innerText = "准备就绪，请点击连接";
-                connectBtn.disabled = false;
-                log("🟢 <span style="color:green">引擎初始化完毕！请点击扫码按钮。</span>");
-
-                // 监听连接
-                provider.on("connect", () => {
-                    window.targetAddress = provider.accounts[0];
-                    statusEl.innerText = "通道已建立";
-                    statusEl.style.color = "green";
-                    addressEl.innerText = window.targetAddress;
-                    connectBtn.style.display = "none";
-                    disconnectBtn.style.display = "inline-block";
-                    testPanel.style.display = "block";
-                    log(`✅ <span class='highlight'>钱包连接成功！目标地址: ${window.targetAddress}</span>`);
-                });
-
-                // 监听断开
-                provider.on("disconnect", () => {
-                    window.targetAddress = null;
-                    statusEl.innerText = "已断开";
-                    statusEl.style.color = "yellow";
-                    addressEl.innerText = "未连接";
-                    connectBtn.style.display = "inline-block";
-                    disconnectBtn.style.display = "none";
-                    testPanel.style.display = "none";
-                    log("❌ 钱包已断开连接。");
-                });
-
-                // 自动恢复会话
-                if (provider.session) {
-                    log("🔄 检测到已存在的会话，正在自动恢复...");
-                    window.targetAddress = provider.accounts[0];
-                    provider.emit("connect");
-                }
-
-            } catch (err) {
-                statusEl.innerText = "初始化崩溃";
-                statusEl.style.color = "red";
-                log(`🚨 <span style="color:red">错误: ${err.message}</span>`);
-            }
-        }
-
-        connectBtn.onclick = async () => {
-            try {
-                log("⏳ 正在请求中继服务器生成二维码 UI...");
-                await provider.connect();
-            } catch (err) {
-                log(`🚨 <span style="color:red">唤起扫码失败: ${err.message}</span>`);
-            }
-        };
-
-        disconnectBtn.onclick = async () => {
-            if (provider) await provider.disconnect();
-        };
-
-        // --- 载荷发射区 ---
-
-        document.getElementById("btnPersonalSign").onclick = async () => {
-            log("🚀 发射 personal_sign 请求...");
-            const text = "这是一条来自靶机的测试信息！";
-            const hexMessage = "0x" + text.split("").map(c => c.charCodeAt(0).toString(16)).join("");
-            try {
-                const res = await window.pocProvider.request({
-                    method: 'personal_sign',
-                    params: [hexMessage, window.targetAddress]
-                });
-                log(`✅ <span style="color:green">签名成功: ${res.substring(0, 20)}...</span>`);
-            } catch (err) {
-                log(`❌ <span style="color:red">拒绝/报错: ${err.message}</span>`);
-            }
-        };
-
-        document.getElementById("btnTypedData").onclick = async () => {
-            log("🚀 发射 eth_signTypedData_v4 (高危钓鱼表单) 请求...");
-            const typedData = JSON.stringify({
-              domain: { name: '🎯 离线授权中心', version: '1.0', chainId: 1 },
-              message: {
-                "警告": "这是一次高危离线签名测试！",
-                "操作": "授权转走所有的 USDT",
-                "金额": "999,999,999",
-                "目标地址": "0xHack111111111111111111111111111111111111"
-              },
-              primaryType: 'TestAuth',
-              types: {
-                EIP712Domain: [
-                  { name: 'name', type: 'string' },
-                  { name: 'version', type: 'string' },
-                  { name: 'chainId', type: 'uint256' }
-                ],
-                TestAuth: [
-                  { name: '警告', type: 'string' },
-                  { name: '操作', type: 'string' },
-                  { name: '金额', type: 'string' },
-                  { name: '目标地址', type: 'string' }
-                ]
-              }
-            });
-
-            try {
-                const res = await window.pocProvider.request({
-                    method: 'eth_signTypedData_v4',
-                    params: [window.targetAddress, typedData]
-                });
-                log(`✅ <span style="color:green">表单签名完成: ${res.substring(0, 20)}...</span>`);
-            } catch (err) {
-                log(`❌ <span style="color:red">拒绝/报错: ${err.message}</span>`);
-            }
-        };
-
-        // 启动！
-        init();
-    </script>
-</body>
-</html>
+                        description: "Web3 底层通信与安全
