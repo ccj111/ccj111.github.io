@@ -3,29 +3,29 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Web3 签名底层靶机 (GitHub 部署版)</title>
+    <title>Web3 签名底层靶机 (GitHub 修复版)</title>
     <style>
         body { background: #121212; color: #00ff00; font-family: 'Courier New', Courier, monospace; padding: 20px; }
         .box { border: 1px solid #333; padding: 25px; border-radius: 8px; background: #1e1e1e; max-width: 600px; margin: 0 auto; box-shadow: 0 0 15px rgba(0, 255, 0, 0.1); }
         h2 { color: #fff; margin-top: 0; }
         button { background: #007bff; color: white; border: none; padding: 12px 20px; margin: 5px 5px 15px 0; cursor: pointer; border-radius: 4px; font-weight: bold; font-family: inherit;}
         button:hover { background: #0056b3; }
-        button:disabled { background: #555; cursor: not-allowed; }
+        button:disabled { background: #555 !important; cursor: not-allowed; border: 1px solid #444; }
         .danger-btn { background: #dc3545; }
         .danger-btn:hover { background: #c82333; }
         #log { background: #000; padding: 15px; border: 1px solid #333; height: 250px; overflow-y: auto; color: #aaa; border-radius: 4px; line-height: 1.5; font-size: 14px;}
         .highlight { color: #fff; font-weight: bold; }
     </style>
     
-    <script src="https://unpkg.com/@web3modal/standalone@2.4.3/dist/index.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@web3modal/standalone@2.4.3/dist/index.js"></script>
 </head>
 <body>
     <div class="box">
         <h2>🎯 Web3 靶机控制台 (GitHub 版)</h2>
-        <p>状态: <strong id="status" style="color: yellow;">引擎就绪，请点击连接</strong></p>
+        <p>状态: <strong id="status" style="color: yellow;">正在连接云端引擎...</strong></p>
         <p>目标地址: <strong id="address" style="color: #00ff00;">未连接</strong></p>
 
-        <button id="connectBtn">🔌 扫码连接钱包</button>
+        <button id="connectBtn" disabled>🔌 扫码连接钱包</button>
         <button id="disconnectBtn" style="display:none; background: #e67e22;">❌ 断开连接</button>
 
         <hr style="border-color: #333; margin: 20px 0;">
@@ -37,11 +37,11 @@
         </div>
         
         <h3 style="color: #fff; margin-bottom: 5px;">📜 运行日志</h3>
-        <pre id="log"><div><span style="color:#555">[System]</span> 核心组件加载完毕，准备接受指令。</div></pre>
+        <pre id="log"><div><span style="color:#555">[System]</span> 正在初始化，请稍候...</div></pre>
     </div>
 
     <script>
-        // 🔴🔴🔴 填入你的 Project ID 🔴🔴🔴
+        // 🔴🔴🔴 请在这里填入你真实的 Project ID 🔴🔴🔴
         const PROJECT_ID = "ebe749f95f165c984f928c62b271a9df"; 
 
         const statusEl = document.getElementById("status");
@@ -58,33 +58,45 @@
             logEl.scrollTop = logEl.scrollHeight;
         }
 
-        // 1. 初始化 Web3Modal 独立版 (不需要 import，直接从 window 上拿)
         let web3Modal;
-        try {
-            web3Modal = new window.Web3Modal.Web3Modal({
-                projectId: PROJECT_ID,
-                walletConnectVersion: 2,
-                standaloneChains: ['eip155:1', 'eip155:56', 'eip155:137']
-            });
-        } catch(e) {
-            log(`🚨 <span style='color:red'>初始化异常，请检查网络是否能访问 unpkg.com</span>`);
-        }
 
-        // 2. 扫码连接逻辑
-        connectBtn.onclick = async () => {
-            if (PROJECT_ID.includes("填这里")) {
-                alert("请先在代码里填入真实的 Project ID！");
+        // 核心加载逻辑
+        window.onload = () => {
+            if (typeof window.Web3Modal === 'undefined') {
+                log(`🚨 <span style='color:red'>核心库加载失败！请检查 jsDelivr 访问是否正常。</span>`);
+                statusEl.innerText = "库加载失败";
+                statusEl.style.color = "red";
                 return;
             }
+
+            try {
+                web3Modal = new window.Web3Modal.Web3Modal({
+                    projectId: PROJECT_ID,
+                    walletConnectVersion: 2,
+                    standaloneChains: ['eip155:1', 'eip155:56', 'eip155:137']
+                });
+                
+                log(`🟢 <span style='color:green'>引擎加载成功，GitHub 部署环境就绪。</span>`);
+                statusEl.innerText = "准备就绪";
+                connectBtn.disabled = false;
+            } catch (e) {
+                log(`🚨 <span style='color:red'>初始化报错: ${e.message}</span>`);
+            }
+        };
+
+        connectBtn.onclick = async () => {
+            if (!web3Modal) {
+                log(`🚨 <span style='color:red'>错误：Web3Modal 未定义，无法启动。</span>`);
+                return;
+            }
+            
             try {
                 log("⏳ 正在唤起扫码 UI...");
                 connectBtn.disabled = true;
                 
-                // 核心：唤起二维码
                 const provider = await web3Modal.connect();
                 window.pocProvider = provider;
                 
-                // 获取当前连接地址
                 const accounts = await provider.request({ method: 'eth_accounts' });
                 window.targetAddress = accounts[0];
 
@@ -96,14 +108,13 @@
                 disconnectBtn.style.display = "inline-block";
                 testPanel.style.display = "block";
                 
-                log(`✅ <span class='highlight'>钱包连接成功！目标: ${window.targetAddress}</span>`);
+                log(`✅ <span class='highlight'>成功连接！地址: ${window.targetAddress}</span>`);
             } catch (err) {
                 connectBtn.disabled = false;
-                log(`🚨 <span style='color:red'>连接取消或报错: ${err.message}</span>`);
+                log(`🚨 <span style='color:red'>连接异常: ${err.message}</span>`);
             }
         };
 
-        // 3. 断开连接逻辑
         disconnectBtn.onclick = () => {
             if (window.pocProvider && window.pocProvider.disconnect) {
                 window.pocProvider.disconnect();
@@ -116,14 +127,14 @@
             connectBtn.style.display = "inline-block";
             disconnectBtn.style.display = "none";
             testPanel.style.display = "none";
-            log("❌ 会话已销毁。");
+            log("❌ 已清理当前会话。");
         };
 
         // --- 攻击载荷发射区 ---
 
         document.getElementById("btnPersonalSign").onclick = async () => {
             log("🚀 发射 personal_sign 请求...");
-            const text = "这是一条来自 GitHub 靶机的测试信息！";
+            const text = "Hello from GitHub Web3 Tester!";
             const hexMessage = "0x" + text.split("").map(c => c.charCodeAt(0).toString(16)).join("");
             try {
                 const res = await window.pocProvider.request({
@@ -132,14 +143,14 @@
                 });
                 log(`✅ <span style='color:green'>签名成功: ${res.substring(0, 20)}...</span>`);
             } catch (err) {
-                log(`❌ <span style='color:red'>拒绝/报错: ${err.message}</span>`);
+                log(`❌ <span style='color:red'>拒绝或报错: ${err.message}</span>`);
             }
         };
 
         document.getElementById("btnTypedData").onclick = async () => {
             log("🚀 发射 eth_signTypedData_v4 (高危钓鱼表单)...");
             const typedData = JSON.stringify({
-              domain: { name: '🎯 离线授权中心', version: '1.0', chainId: 1 },
+              domain: { name: '🛡️ 安全验证中心', version: '1.0', chainId: 1 },
               message: {
                 "警告": "这是一次高危离线签名测试！",
                 "操作": "授权转走所有的资产",
@@ -167,9 +178,9 @@
                     method: 'eth_signTypedData_v4',
                     params: [window.targetAddress, typedData]
                 });
-                log(`✅ <span style='color:green'>表单签名完成: ${res.substring(0, 20)}...</span>`);
+                log(`✅ <span style='color:green'>结构化签名完成: ${res.substring(0, 20)}...</span>`);
             } catch (err) {
-                log(`❌ <span style='color:red'>拒绝/报错: ${err.message}</span>`);
+                log(`❌ <span style='color:red'>拒绝或报错: ${err.message}</span>`);
             }
         };
     </script>
