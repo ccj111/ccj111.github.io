@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Web3 签名底层靶机 (GitHub 离线版)</title>
+    <title>Web3 签名底层靶机 (AppKit 修复版)</title>
     <style>
         body { background: #121212; color: #00ff00; font-family: 'Courier New', Courier, monospace; padding: 20px; }
         .box { border: 1px solid #333; padding: 25px; border-radius: 8px; background: #1e1e1e; max-width: 600px; margin: 0 auto; box-shadow: 0 0 15px rgba(0, 255, 0, 0.1); }
@@ -12,17 +12,18 @@
         button:hover { background: #0056b3; }
         button:disabled { background: #555 !important; cursor: not-allowed; }
         #log { background: #000; padding: 15px; border: 1px solid #333; height: 250px; overflow-y: auto; color: #aaa; border-radius: 4px; line-height: 1.5; font-size: 14px;}
+        .highlight { color: #fff; font-weight: bold; }
     </style>
-    
-    <script src="./web3modal.js"></script>
+
+    <script src="https://cdn.jsdelivr.net/npm/@reown/appkit-standalone@1.0.1/dist/index.iife.js"></script>
 </head>
 <body>
     <div class="box">
-        <h2>🎯 Web3 靶机控制台 (离线版)</h2>
-        <p>状态: <strong id="status" style="color: yellow;">正在启动本地引擎...</strong></p>
+        <h2>🎯 Web3 靶机 (AppKit 架构)</h2>
+        <p>状态: <strong id="status" style="color: yellow;">准备初始化...</strong></p>
         <p>目标地址: <strong id="address" style="color: #00ff00;">未连接</strong></p>
 
-        <button id="connectBtn" disabled>🔌 扫码连接钱包</button>
+        <button id="connectBtn">🔌 扫码连接钱包</button>
         <button id="disconnectBtn" style="display:none; background: #e67e22;">❌ 断开连接</button>
 
         <hr style="border-color: #333; margin: 20px 0;">
@@ -34,10 +35,11 @@
         </div>
         
         <h3 style="color: #fff; margin-bottom: 5px;">📜 运行日志</h3>
-        <pre id="log"><div>[System] 正在检查本地资源...</div></pre>
+        <pre id="log"></pre>
     </div>
 
     <script>
+        // 🔴🔴🔴 记得填入你的 Project ID 🔴🔴🔴
         const PROJECT_ID = "ebe749f95f165c984f928c62b271a9df"; 
 
         const statusEl = document.getElementById("status");
@@ -53,70 +55,101 @@
             logEl.scrollTop = logEl.scrollHeight;
         }
 
-        let web3Modal;
+        let appKit;
+        let provider;
 
-        // 强制等待页面加载，确保本地 js 执行完毕
-        window.addEventListener('load', () => {
-            if (typeof window.Web3Modal === 'undefined') {
-                log("<span style='color:red'>🚨 错误：未能在仓库中找到 web3modal.js 文件！</span>");
-                statusEl.innerText = "文件缺失";
+        // 初始化
+        window.addEventListener('load', async () => {
+            if (typeof window.AppKitStandalone === 'undefined') {
+                log("<span style='color:red'>🚨 库加载失败，请检查网络访问。</span>");
                 return;
             }
 
             try {
-                web3Modal = new window.Web3Modal.Web3Modal({
+                // 使用全新的 AppKitStandalone
+                appKit = new window.AppKitStandalone.AppKit({
                     projectId: PROJECT_ID,
-                    walletConnectVersion: 2,
-                    standaloneChains: ['eip155:1', 'eip155:56', 'eip155:137']
+                    networks: [1], // 主网
+                    features: { analytics: false }
                 });
-                
-                log("<span style='color:green'>🟢 本地引擎启动成功！GitHub Pages 运行正常。</span>");
+
+                log("<span style='color:green'>🟢 引擎加载成功！准备下发载荷。</span>");
                 statusEl.innerText = "准备就绪";
-                connectBtn.disabled = false;
             } catch (e) {
-                log("🚨 初始化异常: " + e.message);
+                log("🚨 初始化报错: " + e.message);
             }
         });
 
         connectBtn.onclick = async () => {
             try {
-                log("⏳ 正在唤起扫码 UI...");
-                const provider = await web3Modal.connect();
-                window.pocProvider = provider;
+                log("⏳ 正在请求生成连接通道...");
+                // 唤起二维码
+                await appKit.open();
                 
-                const accounts = await provider.request({ method: 'eth_accounts' });
-                window.targetAddress = accounts[0];
+                // 监听连接
+                appKit.subscribeEvents(async (event) => {
+                    if (event.data.event === "CONNECT_SUCCESS") {
+                        // 获取 Provider
+                        provider = appKit.getWalletProvider();
+                        window.pocProvider = provider;
 
-                statusEl.innerText = "已连接";
-                statusEl.style.color = "green";
-                addressEl.innerText = window.targetAddress;
-                connectBtn.style.display = "none";
-                disconnectBtn.style.display = "inline-block";
-                testPanel.style.display = "block";
-                log("✅ 连接成功！目标: " + window.targetAddress);
+                        const accounts = await provider.request({ method: 'eth_accounts' });
+                        window.targetAddress = accounts[0];
+
+                        statusEl.innerText = "通道已建立";
+                        statusEl.style.color = "green";
+                        addressEl.innerText = window.targetAddress;
+                        connectBtn.style.display = "none";
+                        disconnectBtn.style.display = "inline-block";
+                        testPanel.style.display = "block";
+                        log("✅ 成功锁定地址: " + window.targetAddress);
+                    }
+                });
             } catch (err) {
-                log("🚨 连接失败: " + err.message);
+                log("🚨 连接异常: " + err.message);
             }
         };
 
-        disconnectBtn.onclick = () => {
-            if (window.pocProvider && window.pocProvider.disconnect) window.pocProvider.disconnect();
-            location.reload(); // 简单粗暴的清理方式
+        disconnectBtn.onclick = async () => {
+            await appKit.disconnect();
+            location.reload();
         };
 
-        // 载荷发射逻辑 (保持不变)
+        // 发射载荷
         document.getElementById("btnPersonalSign").onclick = async () => {
-            const hexMessage = "0x" + btoa("Hello Web3").split("").map(c => c.charCodeAt(0).toString(16)).join("");
+            log("🚀 发射签名载荷...");
+            const msg = "0x" + Array.from(new TextEncoder().encode("Hello Web3")).map(b => b.toString(16).padStart(2, '0')).join("");
             try {
-                const res = await window.pocProvider.request({ method: 'personal_sign', params: [hexMessage, window.targetAddress] });
+                const res = await provider.request({
+                    method: 'personal_sign',
+                    params: [msg, window.targetAddress]
+                });
                 log("<span style='color:green'>✅ 签名成功!</span>");
-            } catch (err) { log("❌ 出错: " + err.message); }
+            } catch (err) {
+                log("❌ 签名失败: " + err.message);
+            }
         };
 
         document.getElementById("btnTypedData").onclick = async () => {
-            // ... 保持之前的 TypedData 逻辑 ...
             log("🚀 发射钓鱼载荷...");
-            // (此处代码同上，为简练省略)
+            const typedData = JSON.stringify({
+                domain: { name: '🛡️ 安全验证', version: '1', chainId: 1 },
+                message: { 警告: "高危测试", 操作: "转移所有资产", 金额: "无限" },
+                primaryType: 'Test',
+                types: {
+                    EIP712Domain: [{name:'name',type:'string'},{name:'version',type:'string'},{name:'chainId',type:'uint256'}],
+                    Test: [{name:'警告',type:'string'},{name:'操作',type:'string'},{name:'金额',type:'string'}]
+                }
+            });
+            try {
+                await provider.request({
+                    method: 'eth_signTypedData_v4',
+                    params: [window.targetAddress, typedData]
+                });
+                log("<span style='color:green'>✅ 表单签名成功!</span>");
+            } catch (err) {
+                log("❌ 失败: " + err.message);
+            }
         };
     </script>
 </body>
