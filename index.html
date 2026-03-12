@@ -3,154 +3,108 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Web3 签名底层靶机 (AppKit 修复版)</title>
+    <title>Web3 签名靶机 (回归版)</title>
     <style>
-        body { background: #121212; color: #00ff00; font-family: 'Courier New', Courier, monospace; padding: 20px; }
-        .box { border: 1px solid #333; padding: 25px; border-radius: 8px; background: #1e1e1e; max-width: 600px; margin: 0 auto; box-shadow: 0 0 15px rgba(0, 255, 0, 0.1); }
-        h2 { color: #fff; margin-top: 0; }
-        button { background: #007bff; color: white; border: none; padding: 12px 20px; margin: 5px 5px 15px 0; cursor: pointer; border-radius: 4px; font-weight: bold; font-family: inherit;}
-        button:hover { background: #0056b3; }
-        button:disabled { background: #555 !important; cursor: not-allowed; }
-        #log { background: #000; padding: 15px; border: 1px solid #333; height: 250px; overflow-y: auto; color: #aaa; border-radius: 4px; line-height: 1.5; font-size: 14px;}
-        .highlight { color: #fff; font-weight: bold; }
+        body { background: #121212; color: #00ff00; font-family: monospace; padding: 20px; }
+        .box { border: 1px solid #333; padding: 20px; background: #1e1e1e; max-width: 500px; margin: 0 auto; border-radius: 8px; }
+        button { background: #3498db; color: white; border: none; padding: 10px 20px; cursor: pointer; border-radius: 4px; margin-bottom: 10px; font-weight: bold; }
+        button:disabled { background: #555; }
+        #log { background: #000; padding: 10px; border: 1px solid #444; height: 200px; overflow-y: auto; font-size: 13px; color: #888; margin-top: 10px; }
     </style>
-
-    <script src="https://cdn.jsdelivr.net/npm/@reown/appkit-standalone@1.0.1/dist/index.iife.js"></script>
 </head>
 <body>
-    <div class="box">
-        <h2>🎯 Web3 靶机 (AppKit 架构)</h2>
-        <p>状态: <strong id="status" style="color: yellow;">准备初始化...</strong></p>
-        <p>目标地址: <strong id="address" style="color: #00ff00;">未连接</strong></p>
 
-        <button id="connectBtn">🔌 扫码连接钱包</button>
-        <button id="disconnectBtn" style="display:none; background: #e67e22;">❌ 断开连接</button>
-
-        <hr style="border-color: #333; margin: 20px 0;">
-
-        <div id="testPanel" style="display:none;">
-            <h3 style="color: #fff;">🔥 攻击载荷发射器</h3>
-            <button id="btnPersonalSign">发送普通签名</button><br>
-            <button id="btnTypedData" style="background:#dc3545">发送高危钓鱼表单</button>
-        </div>
-        
-        <h3 style="color: #fff; margin-bottom: 5px;">📜 运行日志</h3>
-        <pre id="log"></pre>
+<div class="box">
+    <h2>🎯 原始核心测试</h2>
+    <p>状态: <span id="status" style="color: yellow;">等待引擎加载...</span></p>
+    
+    <button id="connectBtn" disabled>扫码连接钱包</button>
+    
+    <div id="controls" style="display:none; border-top: 1px solid #333; padding-top: 15px;">
+        <button id="signBtn" style="background: #2ecc71;">测试签名 (personal_sign)</button>
+        <button id="typedBtn" style="background: #e74c3c;">测试钓鱼表单 (EIP-712)</button>
     </div>
 
-    <script>
-        // 🔴🔴🔴 记得填入你的 Project ID 🔴🔴🔴
-        const PROJECT_ID = "ebe749f95f165c984f928c62b271a9df"; 
+    <pre id="log"></pre>
+</div>
 
-        const statusEl = document.getElementById("status");
-        const addressEl = document.getElementById("address");
-        const connectBtn = document.getElementById("connectBtn");
-        const disconnectBtn = document.getElementById("disconnectBtn");
-        const testPanel = document.getElementById("testPanel");
-        const logEl = document.getElementById("log");
+<script type="module">
+    // --- 核心补丁：防止底层库在浏览器里崩溃 ---
+    if (typeof window !== 'undefined' && window.WebSocket && !WebSocket.prototype.terminate) {
+        WebSocket.prototype.terminate = function() { this.close(); };
+    }
 
-        function log(msg) {
-            const time = new Date().toLocaleTimeString();
-            logEl.innerHTML += `<div><span style="color:#555">[${time}]</span> ${msg}</div>`;
-            logEl.scrollTop = logEl.scrollHeight;
+    // 使用你最初测试成功的 esm.sh 链接
+    import { EthereumProvider } from "https://esm.sh/@walletconnect/ethereum-provider@2.14.0";
+
+    const PROJECT_ID = "ebe749f95f165c984f928c62b271a9df"; 
+    let provider;
+
+    const log = (m) => { document.getElementById("log").innerText += `\n[${new Date().toLocaleTimeString()}] ${m}`; };
+
+    async function init() {
+        try {
+            provider = await EthereumProvider.init({
+                projectId: PROJECT_ID,
+                showQrModal: true,
+                optionalChains: [1]
+            });
+
+            window.pocProvider = provider; // 挂载到全局方便调试
+            
+            document.getElementById("status").innerText = "准备就绪";
+            document.getElementById("connectBtn").disabled = false;
+            log("🟢 引擎初始化完毕");
+
+            provider.on("connect", () => {
+                log("✅ 钱包已连接: " + provider.accounts[0]);
+                document.getElementById("controls").style.display = "block";
+                document.getElementById("connectBtn").style.display = "none";
+                document.getElementById("status").innerText = "已连接";
+            });
+
+        } catch (e) {
+            log("🚨 初始化失败: " + e.message);
         }
+    }
 
-        let appKit;
-        let provider;
+    // 按钮逻辑
+    document.getElementById("connectBtn").onclick = () => provider.connect();
 
-        // 初始化
-        window.addEventListener('load', async () => {
-            if (typeof window.AppKitStandalone === 'undefined') {
-                log("<span style='color:red'>🚨 库加载失败，请检查网络访问。</span>");
-                return;
-            }
+    document.getElementById("signBtn").onclick = async () => {
+        log("🚀 发送签名请求...");
+        const msg = "0x48656c6c6f2057656233"; // "Hello Web3"
+        try {
+            const res = await provider.request({
+                method: 'personal_sign',
+                params: [msg, provider.accounts[0]]
+            });
+            log("✅ 签名成功: " + res.substring(0, 20) + "...");
+        } catch (e) { log("❌ 失败: " + e.message); }
+    };
 
-            try {
-                // 使用全新的 AppKitStandalone
-                appKit = new window.AppKitStandalone.AppKit({
-                    projectId: PROJECT_ID,
-                    networks: [1], // 主网
-                    features: { analytics: false }
-                });
-
-                log("<span style='color:green'>🟢 引擎加载成功！准备下发载荷。</span>");
-                statusEl.innerText = "准备就绪";
-            } catch (e) {
-                log("🚨 初始化报错: " + e.message);
+    document.getElementById("typedBtn").onclick = async () => {
+        log("🚀 发送钓鱼表单...");
+        const typedData = JSON.stringify({
+            domain: { name: '🛡️ 安全验证', version: '1', chainId: 1 },
+            message: { 警告: "高危测试", 操作: "转移资产", 金额: "无限" },
+            primaryType: 'Test',
+            types: {
+                EIP712Domain: [{name:'name',type:'string'},{name:'version',type:'string'},{name:'chainId',type:'uint256'}],
+                Test: [{name:'警告',type:'string'},{name:'操作',type:'string'},{name:'金额',type:'string'}]
             }
         });
-
-        connectBtn.onclick = async () => {
-            try {
-                log("⏳ 正在请求生成连接通道...");
-                // 唤起二维码
-                await appKit.open();
-                
-                // 监听连接
-                appKit.subscribeEvents(async (event) => {
-                    if (event.data.event === "CONNECT_SUCCESS") {
-                        // 获取 Provider
-                        provider = appKit.getWalletProvider();
-                        window.pocProvider = provider;
-
-                        const accounts = await provider.request({ method: 'eth_accounts' });
-                        window.targetAddress = accounts[0];
-
-                        statusEl.innerText = "通道已建立";
-                        statusEl.style.color = "green";
-                        addressEl.innerText = window.targetAddress;
-                        connectBtn.style.display = "none";
-                        disconnectBtn.style.display = "inline-block";
-                        testPanel.style.display = "block";
-                        log("✅ 成功锁定地址: " + window.targetAddress);
-                    }
-                });
-            } catch (err) {
-                log("🚨 连接异常: " + err.message);
-            }
-        };
-
-        disconnectBtn.onclick = async () => {
-            await appKit.disconnect();
-            location.reload();
-        };
-
-        // 发射载荷
-        document.getElementById("btnPersonalSign").onclick = async () => {
-            log("🚀 发射签名载荷...");
-            const msg = "0x" + Array.from(new TextEncoder().encode("Hello Web3")).map(b => b.toString(16).padStart(2, '0')).join("");
-            try {
-                const res = await provider.request({
-                    method: 'personal_sign',
-                    params: [msg, window.targetAddress]
-                });
-                log("<span style='color:green'>✅ 签名成功!</span>");
-            } catch (err) {
-                log("❌ 签名失败: " + err.message);
-            }
-        };
-
-        document.getElementById("btnTypedData").onclick = async () => {
-            log("🚀 发射钓鱼载荷...");
-            const typedData = JSON.stringify({
-                domain: { name: '🛡️ 安全验证', version: '1', chainId: 1 },
-                message: { 警告: "高危测试", 操作: "转移所有资产", 金额: "无限" },
-                primaryType: 'Test',
-                types: {
-                    EIP712Domain: [{name:'name',type:'string'},{name:'version',type:'string'},{name:'chainId',type:'uint256'}],
-                    Test: [{name:'警告',type:'string'},{name:'操作',type:'string'},{name:'金额',type:'string'}]
-                }
+        try {
+            await provider.request({
+                method: 'eth_signTypedData_v4',
+                params: [provider.accounts[0], typedData]
             });
-            try {
-                await provider.request({
-                    method: 'eth_signTypedData_v4',
-                    params: [window.targetAddress, typedData]
-                });
-                log("<span style='color:green'>✅ 表单签名成功!</span>");
-            } catch (err) {
-                log("❌ 失败: " + err.message);
-            }
-        };
-    </script>
+            log("✅ 表单签名成功!");
+        } catch (e) { log("❌ 失败: " + e.message); }
+    };
+
+    init();
+</script>
+
 </body>
 </html>
