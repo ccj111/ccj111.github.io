@@ -3,103 +3,202 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Web3 签名底层靶机 (PoC Tester)</title>
+    <title>Web3 签名底层靶机 v2.0</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; padding: 40px; background: #1e1e1e; color: #fff; }
-        .container { max-width: 600px; margin: 0 auto; background: #2d2d2d; padding: 20px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
-        button { background: #3498db; color: white; border: none; padding: 12px 24px; font-size: 16px; border-radius: 6px; cursor: pointer; margin-right: 10px; }
-        button:hover { background: #2980b9; }
-        #disconnectBtn { background: #e74c3c; display: none; }
-        #disconnectBtn:hover { background: #c0392b; }
-        .console-tip { background: #000; padding: 15px; border-radius: 6px; font-family: monospace; color: #0f0; margin-top: 20px; word-wrap: break-word;}
+        body { background: #121212; color: #00ff00; font-family: 'Courier New', Courier, monospace; padding: 20px; }
+        .box { border: 1px solid #333; padding: 25px; border-radius: 8px; background: #1e1e1e; max-width: 600px; margin: 0 auto; box-shadow: 0 0 15px rgba(0, 255, 0, 0.1); }
+        h2 { color: #fff; margin-top: 0; }
+        button { background: #007bff; color: white; border: none; padding: 12px 20px; margin: 5px 5px 15px 0; cursor: pointer; border-radius: 4px; font-weight: bold; font-family: inherit;}
+        button:hover { background: #0056b3; }
+        button:disabled { background: #555; cursor: not-allowed; }
+        .danger-btn { background: #dc3545; }
+        .danger-btn:hover { background: #c82333; }
+        #log { background: #000; padding: 15px; border: 1px solid #333; height: 200px; overflow-y: auto; color: #aaa; border-radius: 4px; line-height: 1.5;}
+        .highlight { color: #fff; font-weight: bold; }
     </style>
 </head>
 <body>
+    <div class="box">
+        <h2>🎯 Web3 靶机控制台</h2>
+        <p>状态: <strong id="status" style="color: yellow;">等待初始化底层组件...</strong></p>
+        <p>目标地址: <strong id="address" style="color: #00ff00;">未连接</strong></p>
 
-<div class="container">
-    <h2>🎯 Web3 签名底层靶机</h2>
-    <p>状态: <strong id="status" style="color: #f1c40f;">等待连接...</strong></p>
-    
-    <button id="connectBtn">扫码连接手机钱包</button>
-    <button id="disconnectBtn">断开连接</button>
+        <button id="connectBtn" disabled>🔌 扫码连接钱包</button>
+        <button id="disconnectBtn" style="display:none; background: #e67e22;">❌ 断开并清理缓存</button>
 
-    <div class="console-tip" id="tipBox" style="display: none;">
-        ✅ 连接成功！请按 F12 打开浏览器控制台。<br><br>
-        当前目标地址已自动挂载到全局变量: <br>
-        <span style="color: #fff;">window.targetAddress</span><br><br>
-        底层通信通道已就绪: <br>
-        <span style="color: #fff;">window.pocProvider</span>
+        <hr style="border-color: #333; margin: 20px 0;">
+
+        <div id="testPanel" style="display:none;">
+            <h3 style="color: #fff;">🔥 攻击载荷发射器</h3>
+            <button id="btnPersonalSign">发送普通签名 (personal_sign)</button><br>
+            <button id="btnTypedData" class="danger-btn">发送高级钓鱼表单 (TypedData_v4)</button>
+            <p style="font-size: 12px; color: #888;">* 也可以按 F12 在控制台使用 window.pocProvider.request() 手动发送其他高危载荷。</p>
+        </div>
+        
+        <h3 style="color: #fff; margin-bottom: 5px;">📜 运行日志</h3>
+        <pre id="log"></pre>
     </div>
-</div>
 
-<script type="module">
-    import { EthereumProvider } from "https://cdn.jsdelivr.net/npm/@walletconnect/ethereum-provider@2.14.0/+esm";
+    <script type="module">
+        import { EthereumProvider } from "https://esm.sh/@walletconnect/ethereum-provider@2.14.0?bundle";
 
-    // 【关键】替换为你自己的 Project ID
-    const PROJECT_ID = "ebe749f95f165c984f928c62b271a9df"; 
+        // 🔴🔴🔴 请在这里填入你申请的 WalletConnect Project ID 🔴🔴🔴
+        const PROJECT_ID = "ebe749f95f165c984f928c62b271a9df"; 
 
-    let provider;
+        let provider;
+        const statusEl = document.getElementById("status");
+        const addressEl = document.getElementById("address");
+        const connectBtn = document.getElementById("connectBtn");
+        const disconnectBtn = document.getElementById("disconnectBtn");
+        const testPanel = document.getElementById("testPanel");
+        const logEl = document.getElementById("log");
 
-    async function init() {
-        if (PROJECT_ID === "你的_PROJECT_ID") {
-            alert("请先用文本编辑器打开 html 文件，填入你的 WalletConnect Project ID！");
-            return;
+        // 网页版日志打印工具
+        function log(msg) {
+            console.log(msg);
+            const time = new Date().toLocaleTimeString();
+            logEl.innerHTML += `<div><span style="color:#555">[${time}]</span> ${msg}</div>`;
+            logEl.scrollTop = logEl.scrollHeight;
         }
 
-        try {
-            // 初始化 Provider
-            provider = await EthereumProvider.init({
-                projectId: PROJECT_ID,
-                metadata: {
-                    name: "PoC Tester",
-                    description: "安全研究底层测试靶机",
-                    url: "https://localhost", // 本地测试随意填
-                    icons: ["https://avatars.githubusercontent.com/u/37784886"]
-                },
-                showQrModal: true,
-                optionalChains: [1, 56, 137] // 默认支持 ETH主网, BSC, Polygon
-            });
+        async function init() {
+            if (PROJECT_ID === "你的_PROJECT_ID_填这里" || PROJECT_ID.length < 10) {
+                statusEl.innerText = "错误: 请用记事本打开代码，填入真实的 Project ID！";
+                statusEl.style.color = "red";
+                log("🚨 致命错误：缺少 Project ID。");
+                return;
+            }
 
-            // 【核心魔法】将 Provider 挂载到全局 window 对象上，完全暴露给控制台！
-            window.pocProvider = provider;
+            try {
+                // 初始化 Provider
+                provider = await EthereumProvider.init({
+                    projectId: PROJECT_ID,
+                    metadata: {
+                        name: "安全靶机",
+                        description: "用于测试钱包底层的安全策略与 UI 展示",
+                        url: window.location.origin,
+                        icons: ["https://avatars.githubusercontent.com/u/37784886"]
+                    },
+                    showQrModal: true,
+                    optionalChains: [1, 56, 137]
+                });
 
-            // 监听连接事件
-            provider.on("connect", () => {
-                window.targetAddress = provider.accounts[0];
-                document.getElementById("status").innerText = `已连接: ${window.targetAddress}`;
-                document.getElementById("status").style.color = "#2ecc71";
-                document.getElementById("connectBtn").style.display = "none";
-                document.getElementById("disconnectBtn").style.display = "inline-block";
-                document.getElementById("tipBox").style.display = "block";
-                
-                console.log("🔥 靶机连接完毕！你可以开始下发 Payload 了。");
-            });
+                window.pocProvider = provider; 
 
-            provider.on("disconnect", () => {
-                window.targetAddress = null;
-                document.getElementById("status").innerText = "等待连接...";
-                document.getElementById("status").style.color = "#f1c40f";
-                document.getElementById("connectBtn").style.display = "inline-block";
-                document.getElementById("disconnectBtn").style.display = "none";
-                document.getElementById("tipBox").style.display = "none";
-            });
+                // 监听连接成功事件
+                provider.on("connect", () => {
+                    window.targetAddress = provider.accounts[0];
+                    statusEl.innerText = "通道已建立";
+                    statusEl.style.color = "green";
+                    addressEl.innerText = window.targetAddress;
+                    connectBtn.style.display = "none";
+                    disconnectBtn.style.display = "inline-block";
+                    testPanel.style.display = "block";
+                    log("✅ <span class='highlight'>钱包连接成功！靶机就绪。</span>");
+                });
 
-        } catch (error) {
-            console.error("初始化失败:", error);
+                // 监听断开事件
+                provider.on("disconnect", () => {
+                    window.targetAddress = null;
+                    statusEl.innerText = "已断开";
+                    statusEl.style.color = "yellow";
+                    addressEl.innerText = "未连接";
+                    connectBtn.style.display = "inline-block";
+                    disconnectBtn.style.display = "none";
+                    testPanel.style.display = "none";
+                    log("❌ 钱包已断开，缓存已清理。");
+                });
+
+                // 幽灵会话自动恢复逻辑
+                if (provider.session) {
+                     log("🔄 检测到之前的会话，正在尝试恢复...");
+                     window.targetAddress = provider.accounts[0];
+                     provider.emit("connect"); 
+                } else {
+                    statusEl.innerText = "等待连接...";
+                    connectBtn.disabled = false;
+                    log("🟢 底层组件加载完毕，请点击连接按钮。");
+                }
+
+            } catch (err) {
+                statusEl.innerText = "底层加载崩溃";
+                statusEl.style.color = "red";
+                log(`🚨 <span style="color:red">初始化报错: ${err.message}</span>`);
+            }
         }
-    }
 
-    document.getElementById("connectBtn").addEventListener("click", async () => {
-        if (provider) await provider.connect();
-    });
+        // 绑定按钮事件
+        connectBtn.onclick = async () => {
+            try {
+                log("⏳ 正在请求中继服务器生成二维码...");
+                await provider.connect();
+            } catch (err) {
+                log(`🚨 <span style="color:red">唤起二维码失败: ${err.message}</span>`);
+            }
+        };
 
-    document.getElementById("disconnectBtn").addEventListener("click", async () => {
-        if (provider) await provider.disconnect();
-    });
+        disconnectBtn.onclick = async () => {
+            if (provider) await provider.disconnect();
+        };
 
-    // 页面加载时初始化
-    init();
-</script>
+        // --- 攻击载荷发射区 ---
 
+        // 1. 发送普通签名
+        document.getElementById("btnPersonalSign").onclick = async () => {
+            log("🚀 发射 personal_sign 请求...");
+            const text = "这是一条来自控制台的测试信息！";
+            const hexMessage = "0x" + text.split("").map(c => c.charCodeAt(0).toString(16)).join("");
+            try {
+                const res = await window.pocProvider.request({
+                    method: 'personal_sign',
+                    params: [hexMessage, window.targetAddress]
+                });
+                log(`✅ <span style="color:green">签名成功: ${res.substring(0, 20)}...</span>`);
+            } catch (err) {
+                log(`❌ <span style="color:red">拒绝/报错: ${err.message}</span>`);
+            }
+        };
+
+        // 2. 发送高级钓鱼结构化签名
+        document.getElementById("btnTypedData").onclick = async () => {
+            log("🚀 发射 eth_signTypedData_v4 请求 (钓鱼表单)...");
+            const typedData = JSON.stringify({
+              domain: { name: '🎯 离线授权中心', version: '1.0', chainId: 1 },
+              message: {
+                "警告": "这是一次高危离线签名测试！",
+                "操作": "授权转走所有的 USDT",
+                "金额": "999,999,999",
+                "目标黑客地址": "0x1111111111111111111111111111111111111111"
+              },
+              primaryType: 'TestAuth',
+              types: {
+                EIP712Domain: [
+                  { name: 'name', type: 'string' },
+                  { name: 'version', type: 'string' },
+                  { name: 'chainId', type: 'uint256' }
+                ],
+                TestAuth: [
+                  { name: '警告', type: 'string' },
+                  { name: '操作', type: 'string' },
+                  { name: '金额', type: 'string' },
+                  { name: '目标黑客地址', type: 'string' }
+                ]
+              }
+            });
+
+            try {
+                const res = await window.pocProvider.request({
+                    method: 'eth_signTypedData_v4',
+                    params: [window.targetAddress, typedData]
+                });
+                log(`✅ <span style="color:green">结构化签名完成: ${res.substring(0, 20)}...</span>`);
+            } catch (err) {
+                log(`❌ <span style="color:red">拒绝/报错: ${err.message}</span>`);
+            }
+        };
+
+        // 启动引擎
+        init();
+    </script>
 </body>
 </html>
