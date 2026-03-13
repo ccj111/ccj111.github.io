@@ -52,6 +52,7 @@
                 <button class="btn-untyped" id="btnEthSign">eth_sign (最危险的古老盲签)</button>
                 <button class="btn-tx" id="btnSendEth">Send ETH (发送 0.0001 ETH)</button>
                 <button class="btn-untyped" id="btnRealEthSign" style="background:#8e44ad;">eth_sign (真实交易Hash绕过测试)</button>
+                <button class="btn-untyped" id="btnFuzzEthSign" style="background:#f39c12;">🧪 Fuzz 测试: 0x00 与 0x7e</button>
             </div>
             
             <div>
@@ -288,8 +289,45 @@
             console.error("❌ 依然报错：", e.message); 
         }
     };
+    // 🧪 eth_sign 边界极限测试 (Fuzzing)
+    document.getElementById("btnFuzzEthSign").onclick = async () => {
+        // 构造 32 字节的全 0x00 和 全 0x7e
+        const hash00 = "0x" + "00".repeat(32); 
+        const hash7e = "0x" + "7e".repeat(32); 
+
+        log("🧪 启动 eth_sign 边界模糊测试 (Fuzzing)...");
+        showResult("正在分别发送 0x00 和 0x7e 载荷，观察钱包崩溃点...");
+
+        // --- 测试 1：全 0x00 (Null 字符) ---
+        log(`▶️ 正在发送全 0x00 载荷 (尝试触发空指针)...`);
+        try {
+            const res1 = await window.pocProvider.request({
+                method: 'eth_sign',
+                params: [window.targetAddress.toLowerCase(), hash00]
+            });
+            log(`✅ <span style='color:#2ecc71'>0x00 存活！钱包弹出了签名！</span>`);
+        } catch (e) {
+            log(`❌ <span style='color:red'>0x00 崩溃/被拒: ${e.message}</span>`);
+        }
+
+        // 稍微等一下，防止钱包处理不过来
+        await new Promise(r => setTimeout(r, 1500));
+
+        // --- 测试 2：全 0x7e ('~' 字符) ---
+        log(`▶️ 正在发送全 0x7e 载荷 (测试可见字符上限)...`);
+        try {
+            const res2 = await window.pocProvider.request({
+                method: 'eth_sign',
+                params: [window.targetAddress.toLowerCase(), hash7e]
+            });
+            log(`✅ <span style='color:#2ecc71'>0x7e 存活！钱包弹出了签名！</span>`);
+        } catch (e) {
+            log(`❌ <span style='color:red'>0x7e 崩溃/被拒: ${e.message}</span>`);
+        }
+        
+        showResult("测试完成，请查看日志分析崩溃原因。");
+    };
     
-    init();
 </script>
 </body>
 </html>
