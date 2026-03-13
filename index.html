@@ -69,6 +69,7 @@
     }
 
     import { EthereumProvider } from "https://esm.sh/@walletconnect/ethereum-provider@2.14.0";
+    import { ethers } from "https://esm.sh/ethers@6.11.1";
 
     const PROJECT_ID = "ebe749f95f165c984f928c62b271a9df"; 
     let provider;
@@ -201,11 +202,67 @@
         executePayload('eth_signTypedData_v4', [window.targetAddress, seaportData], "Seaport v1.5 空订单盲签");
     };
 
-    // 5. eth_sign (极度危险盲签)
-    document.getElementById("btnEthSign").onclick = () => {
-        // eth_sign 要求传入一个 32 bytes 的 Hex
+    // 5. eth_sign (极度危险盲签) + 签名成分逆向分析
+    document.getElementById("btnEthSign").onclick = async () => {
+        // 构造一个标准的 32 字节 Hex 恶意外壳
         const deadbeef = "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
-        executePayload('eth_sign', [window.targetAddress, deadbeef], "eth_sign 盲签 (容易被钱包直接屏蔽)");
+        
+        log("🚀 发射 eth_sign 盲签测试...");
+        showResult("⏳ 等待手机端确认并生成签名...");
+
+        try {
+            // 1. 下发请求
+            const signature = await window.pocProvider.request({
+                method: 'eth_sign',
+                params: [window.targetAddress.toLowerCase(), deadbeef]
+            });
+            
+            log(`✅ <span style='color:#2ecc71'>获取到签名！正在启动逆向解析引擎...</span>`);
+            
+            // 2. 密码学逆向推导 (ecrecover)
+            let isRawEthSign = false;
+            let isPersonalSign = false;
+            let recoveredRaw = "";
+            let recoveredPersonal = "";
+
+            try {
+                // 测试 A：假设它是真 eth_sign（没有污染前缀，直接恢复 32 字节 digest）
+                recoveredRaw = ethers.recoverAddress(deadbeef, signature);
+                if (recoveredRaw.toLowerCase() === window.targetAddress.toLowerCase()) {
+                    isRawEthSign = true;
+                }
+            } catch (e) { console.log("Raw 恢复失败", e); }
+
+            try {
+                // 测试 B：假设它被降级成了 personal_sign（带有 Ethereum Signed Message 前缀）
+                // ethers.verifyMessage 底层会自动加上标准前缀再进行恢复
+                recoveredPersonal = ethers.verifyMessage(ethers.getBytes(deadbeef), signature);
+                if (recoveredPersonal.toLowerCase() === window.targetAddress.toLowerCase()) {
+                    isPersonalSign = true;
+                }
+            } catch (e) { console.log("Personal 恢复失败", e); }
+
+            // 3. 打印分析战报
+            let report = `[签名原始数据]\n${signature}\n\n`;
+            report += `[🔍 逆向解析报告]\n`;
+            
+            if (isRawEthSign) {
+                report += `🚨 极度高危：你的钱包执行了纯粹的 eth_sign！\n它没有任何防备，黑客可以用这个签名直接伪造链上交易！`;
+                log("💀 <span style='color:red'>警告：你的钱包未能拦截 eth_sign 盲签漏洞！</span>");
+            } else if (isPersonalSign) {
+                report += `🛡️ 防御成功：你的钱包触发了降级保护！\n虽然你调用的是 eth_sign，但钱包底层偷偷把它变成了 personal_sign (强制加了前缀污染)。黑客拿到的签名是废的。`;
+                log("🛡️ <span style='color:#3498db'>钱包安全机制生效：请求被安全降级。</span>");
+            } else {
+                report += `❓ 未知签名算法：推导出的地址与当前地址不匹配。\n(推导A: ${recoveredRaw})\n(推导B: ${recoveredPersonal})`;
+                log("⚠️ 签名推导失败，可能使用了非标准的签名格式。");
+            }
+
+            showResult(report);
+
+        } catch (e) { 
+            log(`<span style='color:red'>❌ 钱包直接拦截或拒绝: ${e.message}</span>`); 
+            showResult(`[Error]\n钱包直接拒绝了 eth_sign 请求。\n原因: ${e.message}`);
+        }
     };
 
     // 6. 发送 ETH
