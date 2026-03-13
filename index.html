@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Web3 签名底层靶机 (究极完全体)</title>
+    <title>Web3 签名底层靶机 (终极完全体)</title>
     <style>
         body { background: #121212; color: #00ff00; font-family: 'Courier New', Courier, monospace; padding: 20px; }
         .box { border: 1px solid #333; padding: 25px; background: #1e1e1e; max-width: 650px; margin: 0 auto; border-radius: 8px; box-shadow: 0 0 15px rgba(0,255,0,0.1); }
@@ -20,7 +20,7 @@
 <body>
 
 <div class="box">
-    <h2>🎯 Web3 签名靶机 (原版+权限补丁)</h2>
+    <h2>🎯 Web3 签名靶机 (终极稳定版)</h2>
     <p>状态: <strong id="status" style="color: yellow;">等待引擎加载...</strong></p>
     <p>目标地址: <strong id="address" style="color: #00ff00;">未连接</strong></p>
     
@@ -38,7 +38,7 @@
 </div>
 
 <script type="module">
-    // 🛠️ 核心补丁：修复 esm.sh 转换 Node.js 代码时导致的 terminate 崩溃报错
+    // 🛠️ 核心补丁1：修复 esm.sh 转换 Node.js 代码时导致的 terminate 崩溃报错
     if (typeof window !== 'undefined' && window.WebSocket && !WebSocket.prototype.terminate) {
         WebSocket.prototype.terminate = function() { 
             console.warn("[拦截补丁] 成功拦截 terminate，转为 close()"); 
@@ -46,7 +46,6 @@
         };
     }
 
-    // 引入最畅通的库
     import { EthereumProvider } from "https://esm.sh/@walletconnect/ethereum-provider@2.14.0";
 
     // 🔴🔴🔴 务必填入你的 Project ID 🔴🔴🔴
@@ -76,8 +75,7 @@
                 projectId: PROJECT_ID,
                 showQrModal: true,
                 optionalChains: [1, 56, 137],
-                
-                // 🔑 核心权限修复：提前向钱包申请高危 API 的使用权限
+                // 🛠️ 核心补丁2：声明高危 API 权限，防止发载荷时报 connect() 错误
                 optionalMethods: [
                     "personal_sign",
                     "eth_signTypedData_v4",
@@ -117,17 +115,16 @@
                 log("❌ 会话已断开。");
             });
 
-            // 🛠️ 完美修复的无报错会话恢复逻辑
-            if (provider.session && provider.accounts && provider.accounts.length > 0) {
-                log("🔄 发现残留会话，正在提取底层信息...");
-                window.targetAddress = provider.accounts[0];
-                document.getElementById("address").innerText = window.targetAddress;
-                document.getElementById("controls").style.display = "block";
-                document.getElementById("connectBtn").style.display = "none";
-                document.getElementById("disconnectBtn").style.display = "inline-block";
-                document.getElementById("status").innerText = "已恢复连接";
-                document.getElementById("status").style.color = "#2ecc71";
-                log(`✅ <span class='highlight'>会话恢复成功！锁定目标: ${window.targetAddress}</span>`);
+            // 🛠️ 核心补丁3：真正修复会话恢复，真实唤醒底层通信
+            if (provider.session) {
+                log("🔄 发现残留会话，正在尝试唤醒底层通信通道...");
+                try {
+                    // 静默重连，激活底层 WebSocket
+                    await provider.connect(); 
+                } catch (e) {
+                    log("<span style='color:red'>🚨 会话已失效，请点击【断开并清缓存】然后重新扫码。</span>");
+                    document.getElementById("disconnectBtn").style.display = "inline-block";
+                }
             }
 
         } catch (e) {
@@ -139,22 +136,37 @@
 
     document.getElementById("connectBtn").onclick = async () => {
         try {
-            log("⏳ 正在请求中继服务器生成二维码...");
+            log("⏳ 正在请求中继服务器...");
             await provider.connect();
         } catch (e) {
             log("<span style='color:red'>🚨 扫码唤起失败: " + e.message + "</span>");
         }
     };
 
+    // 🛠️ 核心补丁4：物理超度级别的断开连接，彻底解决幽灵会话死锁
     document.getElementById("disconnectBtn").onclick = async () => {
-        if (provider) await provider.disconnect();
+        log("🗑️ 正在强行销毁连接和本地缓存...");
+        try {
+            if (provider) await provider.disconnect();
+        } catch (e) {
+            console.log("底层断开报错，无视它，准备物理清理...");
+        }
+        
+        // 暴力破解：遍历并清除所有 WalletConnect 相关的本地存储
+        Object.keys(localStorage).forEach(key => {
+            if (key.includes('wc@2') || key.includes('walletconnect')) {
+                localStorage.removeItem(key);
+            }
+        });
+        
+        log("✅ 缓存清理完毕，页面即将刷新...");
+        setTimeout(() => location.reload(), 1000); // 1秒后刷新页面，一切归零
     };
 
-    // 1. 发送 personal_sign 载荷
+    // 发射普通签名
     document.getElementById("signBtn").onclick = async () => {
         log("🚀 正在发射 personal_sign 请求...");
-        const hexMessage = "0x48656c6c6f20576f726c64"; // "Hello World"
-        
+        const hexMessage = "0x48656c6c6f20576f726c64"; 
         try {
             const res = await window.pocProvider.request({
                 method: 'personal_sign',
@@ -166,10 +178,9 @@
         }
     };
 
-    // 2. 发送高级钓鱼表单载荷
+    // 发射高级钓鱼表单载荷
     document.getElementById("typedBtn").onclick = async () => {
         log("🚀 正在构造 EIP-712 高危结构化表单...");
-        
         const typedData = JSON.stringify({
             domain: { name: '🎯 Web3 安全靶机测试', version: '1.0', chainId: 1 },
             message: { 
@@ -180,17 +191,8 @@
             },
             primaryType: 'TestAuth',
             types: {
-                EIP712Domain: [
-                    { name: 'name', type: 'string' },
-                    { name: 'version', type: 'string' },
-                    { name: 'chainId', type: 'uint256' }
-                ],
-                TestAuth: [
-                    { name: '⚠️ 危险警告', type: 'string' },
-                    { name: '执行操作', type: 'string' },
-                    { name: '授权金额', type: 'string' },
-                    { name: '钓鱼者地址', type: 'string' }
-                ]
+                EIP712Domain: [{ name: 'name', type: 'string' },{ name: 'version', type: 'string' },{ name: 'chainId', type: 'uint256' }],
+                TestAuth: [{ name: '⚠️ 危险警告', type: 'string' },{ name: '执行操作', type: 'string' },{ name: '授权金额', type: 'string' },{ name: '钓鱼者地址', type: 'string' }]
             }
         });
 
@@ -205,7 +207,6 @@
         }
     };
 
-    // 启动引擎！
     init();
 </script>
 
